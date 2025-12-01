@@ -1,0 +1,23 @@
+{
+  "name": "telegram-q-bot",
+  "version": "1.0.0",
+  "description": "Telegram Question Bot - A Telegram bot deployed on Vercel",
+  "main": "api/webhook.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "vercel",
+    "webhook"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18.x"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
