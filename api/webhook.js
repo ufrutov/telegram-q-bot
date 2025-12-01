@@ -3,9 +3,24 @@ const TelegramBot = require('node-telegram-bot-api');
 // Get the bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
+/**
+ * Validates the Telegram bot token format
+ * Telegram bot tokens follow the format: <bot_id>:<hash>
+ * @param {string} botToken - The token to validate
+ * @returns {boolean} - True if valid format, false otherwise
+ */
+function isValidTokenFormat(botToken) {
+  if (!botToken || typeof botToken !== 'string') {
+    return false;
+  }
+  // Telegram bot token format: digits:alphanumeric string
+  const tokenPattern = /^\d+:[A-Za-z0-9_-]+$/;
+  return tokenPattern.test(botToken);
+}
+
 // Create a bot instance (without polling since we're using webhooks)
 let bot;
-if (token) {
+if (token && isValidTokenFormat(token)) {
   bot = new TelegramBot(token);
 }
 
@@ -34,10 +49,24 @@ module.exports = async (req, res) => {
   try {
     const update = req.body;
 
+    // Validate request body structure
+    if (!update || typeof update !== 'object') {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
     // Process the incoming update from Telegram
-    if (update && update.message) {
-      const chatId = update.message.chat.id;
+    // NOTE: Currently only handles text messages. Other update types
+    // (inline queries, callback queries, media messages, etc.) can be
+    // added here as needed for future development.
+    if (update.message) {
+      const chatId = update.message.chat?.id;
       const messageText = update.message.text;
+
+      // Validate chat ID exists
+      if (!chatId) {
+        console.error('Invalid message structure: missing chat.id');
+        return res.status(200).json({ ok: true });
+      }
 
       // Echo the received message back (basic example)
       if (messageText) {
