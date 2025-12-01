@@ -74,10 +74,13 @@ module.exports = async (req, res) => {
 			if (messageText && messageText.startsWith("/question")) {
 				try {
 					// Load a random question from chgk.info
-					await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
+					const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
 					const questionData = await questionLoader.loadQuestion();
 					const formattedMessage = questionLoader.formatForTelegram(questionData);
+
+					// Delete the loading message
+					await bot.deleteMessage(chatId, loadingMsg.message_id);
 
 					// Send the question
 					await bot.sendMessage(chatId, formattedMessage, {
