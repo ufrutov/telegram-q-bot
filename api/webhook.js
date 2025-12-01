@@ -82,20 +82,33 @@ module.exports = async (req, res) => {
 					// Delete the loading message
 					await bot.deleteMessage(chatId, loadingMsg.message_id);
 
-					// Send the question
-					await bot.sendMessage(chatId, formattedMessage, {
-						parse_mode: "MarkdownV2",
-					});
-
-					// Send images if available
+					// Send images as media group or regular message
 					if (questionData.preview && questionData.preview.length > 0) {
-						for (const imageUrl of questionData.preview) {
-							try {
-								await bot.sendPhoto(chatId, imageUrl);
-							} catch (imgError) {
-								console.error("Error sending image:", imgError);
-							}
+						// Send images as media group with caption
+						const media = questionData.preview.map((url, index) => ({
+							type: "photo",
+							media: url,
+							// Only add caption to the first image
+							...(index === 0 && {
+								caption: formattedMessage,
+								parse_mode: "MarkdownV2",
+							}),
+						}));
+
+						try {
+							await bot.sendMediaGroup(chatId, media);
+						} catch (imgError) {
+							console.error("Error sending media group:", imgError);
+							// Fallback: send message without images
+							await bot.sendMessage(chatId, formattedMessage, {
+								parse_mode: "MarkdownV2",
+							});
 						}
+					} else {
+						// No images, send regular message
+						await bot.sendMessage(chatId, formattedMessage, {
+							parse_mode: "MarkdownV2",
+						});
 					}
 				} catch (error) {
 					console.error("Error loading question:", error);
