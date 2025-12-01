@@ -40,20 +40,33 @@ Add your bot token as an environment variable in Vercel:
 
 ### 4. Deploy to Vercel
 
-#### Option A: Using Vercel CLI
+#### Option A: Using GitHub Actions (Recommended)
+
+This project includes automated deployment via GitHub Actions. See [GITHUB_SETUP.md](GITHUB_SETUP.md) for detailed setup instructions.
+
+**Quick setup:**
+1. Get your Vercel token from [Vercel Account Settings](https://vercel.com/account/tokens)
+2. Add `VERCEL_TOKEN` secret to your GitHub repository
+3. Run `vercel link` locally to link your project
+4. Push to `master` branch - GitHub Actions will automatically deploy using `vercel --prod`
+
+#### Option B: Manual Deployment with Vercel CLI
 
 ```bash
 # Install Vercel CLI globally
 npm install -g vercel
 
+# Link to your Vercel project (first time)
+vercel link
+
 # Deploy to production
 vercel --prod
 ```
 
-#### Option B: Using GitHub Integration
+#### Option C: Using Vercel GitHub Integration
 
 1. Push your code to GitHub
-2. Connect your repository to Vercel
+2. Import your repository in Vercel Dashboard
 3. Vercel will automatically deploy on each push
 
 ### 5. Set Webhook URL
