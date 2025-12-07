@@ -77,7 +77,10 @@ module.exports = async (req, res) => {
 					const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
 					const questionData = await questionLoader.loadQuestion();
-					const formattedMessage = questionLoader.formatForTelegram(questionData);
+					const { question, answer } = questionLoader.formatForTelegram(
+						questionData,
+						messageText.includes("split")
+					);
 
 					// Delete the loading message
 					await bot.deleteMessage(chatId, loadingMsg.message_id);
@@ -90,7 +93,7 @@ module.exports = async (req, res) => {
 							media: url,
 							// Only add caption to the first image
 							...(index === 0 && {
-								caption: formattedMessage,
+								caption: question,
 								parse_mode: "MarkdownV2",
 							}),
 						}));
@@ -100,13 +103,20 @@ module.exports = async (req, res) => {
 						} catch (imgError) {
 							console.error("Error sending media group:", imgError);
 							// Fallback: send message without images
-							await bot.sendMessage(chatId, formattedMessage, {
+							await bot.sendMessage(chatId, question, {
 								parse_mode: "MarkdownV2",
 							});
 						}
 					} else {
 						// No images, send regular message
-						await bot.sendMessage(chatId, formattedMessage, {
+						await bot.sendMessage(chatId, question, {
+							parse_mode: "MarkdownV2",
+						});
+					}
+
+					if (messageText.includes("split")) {
+						// Send question answer as regular message
+						await bot.sendMessage(chatId, answer, {
 							parse_mode: "MarkdownV2",
 						});
 					}
