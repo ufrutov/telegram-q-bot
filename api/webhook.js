@@ -85,6 +85,9 @@ module.exports = async (req, res) => {
 					// Delete the loading message
 					await bot.deleteMessage(chatId, loadingMsg.message_id);
 
+					// Question message reference for answer reply
+					let questionMessage;
+
 					// Send images as media group or regular message
 					if (questionData.preview && questionData.preview.length > 0) {
 						// Send images as media group with caption
@@ -99,7 +102,7 @@ module.exports = async (req, res) => {
 						}));
 
 						try {
-							await bot.sendMediaGroup(chatId, media);
+							questionMessage = await bot.sendMediaGroup(chatId, media);
 						} catch (imgError) {
 							console.error("Error sending media group:", imgError);
 							// Fallback: send message without images
@@ -109,7 +112,7 @@ module.exports = async (req, res) => {
 						}
 					} else {
 						// No images, send regular message
-						await bot.sendMessage(chatId, question, {
+						questionMessage = await bot.sendMessage(chatId, question, {
 							parse_mode: "MarkdownV2",
 						});
 					}
@@ -118,6 +121,7 @@ module.exports = async (req, res) => {
 						// Send question answer as regular message
 						await bot.sendMessage(chatId, answer, {
 							parse_mode: "MarkdownV2",
+							reply_to_message_id: questionMessage.message_id,
 						});
 					}
 				} catch (error) {
