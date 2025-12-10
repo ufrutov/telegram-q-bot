@@ -155,7 +155,19 @@ module.exports = async (req, res) => {
 								],
 							},
 						});
-					} // Store answer data in Redis with 1 hour TTL
+					}
+
+					// Store answer data in Redis with 1 hour TTL
+					if (redisClient) {
+						await redisClient.setEx(
+							answerKey,
+							3600, // Expires in 1 hour
+							JSON.stringify({
+								answer,
+								answerPreview: questionData.answerPreview || [],
+							})
+						);
+					}
 				} catch (error) {
 					console.error("Error loading question:", error);
 					await bot.sendMessage(
