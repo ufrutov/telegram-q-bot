@@ -1,11 +1,8 @@
 const TelegramBot = require("node-telegram-bot-api");
-const QuestionLoader = require("../lib/QuestionLoader");
+const QuestionLoader = require("../lib/QuestionLoader/QuestionLoader");
 
 // Get the bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
-
-// Initialize question loader
-const questionLoader = new QuestionLoader();
 
 /**
  * Validates the Telegram bot token format
@@ -76,11 +73,15 @@ module.exports = async (req, res) => {
 					// Load a random question from chgk.info
 					const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
+					// Initialize question loader (using questions.chgk.info by default)
+					const target = {
+						"/question": "questions.chgk.info",
+						"/question2": "gotquestions.online",
+					};
+					const questionLoader = QuestionLoader(target[messageText]);
+
 					const questionData = await questionLoader.loadQuestion();
-					const { question, answer } = questionLoader.formatForTelegram(
-						questionData,
-						messageText.includes("split")
-					);
+					const { question, answer } = questionLoader.formatForTelegram(questionData, true);
 
 					// Delete the loading message
 					await bot.deleteMessage(chatId, loadingMsg.message_id);
@@ -88,10 +89,10 @@ module.exports = async (req, res) => {
 					// Question message reference for answer reply
 					let questionMessage;
 
-					// Send images as media group or regular message
-					if (questionData.preview && questionData.preview.length > 0) {
+					// Send question with images as media group or regular message
+					if (questionData.questionPreview && questionData.questionPreview.length > 0) {
 						// Send images as media group with caption
-						const media = questionData.preview.map((url, index) => ({
+						const media = questionData.questionPreview.map((url, index) => ({
 							type: "photo",
 							media: url,
 							// Only add caption to the first image
@@ -102,11 +103,12 @@ module.exports = async (req, res) => {
 						}));
 
 						try {
-							questionMessage = await bot.sendMediaGroup(chatId, media);
+							const messages = await bot.sendMediaGroup(chatId, media);
+							questionMessage = messages[0]; // Use first message for reply reference
 						} catch (imgError) {
-							console.error("Error sending media group:", imgError);
+							console.error("Error sending question media group:", imgError);
 							// Fallback: send message without images
-							await bot.sendMessage(chatId, question, {
+							questionMessage = await bot.sendMessage(chatId, question, {
 								parse_mode: "MarkdownV2",
 							});
 						}
@@ -117,8 +119,33 @@ module.exports = async (req, res) => {
 						});
 					}
 
-					if (messageText.includes("split")) {
-						// Send question answer as regular message
+					// Send answer with images as media group or regular message
+					if (questionData.answerPreview && questionData.answerPreview.length > 0) {
+						// Send answer images as media group with caption
+						const media = questionData.answerPreview.map((url, index) => ({
+							type: "photo",
+							media: url,
+							// Only add caption to the first image
+							...(index === 0 && {
+								caption: answer,
+								parse_mode: "MarkdownV2",
+							}),
+						}));
+
+						try {
+							await bot.sendMediaGroup(chatId, media, {
+								reply_to_message_id: questionMessage.message_id,
+							});
+						} catch (imgError) {
+							console.error("Error sending answer media group:", imgError);
+							// Fallback: send answer without images
+							await bot.sendMessage(chatId, answer, {
+								parse_mode: "MarkdownV2",
+								reply_to_message_id: questionMessage.message_id,
+							});
+						}
+					} else {
+						// No answer images, send regular message
 						await bot.sendMessage(chatId, answer, {
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: questionMessage.message_id,
