@@ -7,6 +7,9 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 // Initialize question loader
 const questionLoader = new QuestionLoader();
 
+// In-memory cache for storing answers (key: chatId_messageId, value: answer text)
+const answerCache = new Map();
+
 /**
  * Validates the Telegram bot token format
  * Telegram bot tokens follow the format: <bot_id>:<hash>
@@ -77,10 +80,7 @@ module.exports = async (req, res) => {
 					const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
 					const questionData = await questionLoader.loadQuestion();
-					const { question, answer } = questionLoader.formatForTelegram(
-						questionData,
-						messageText.includes("split")
-					);
+					const { question, answer } = questionLoader.formatForTelegram(questionData, true);
 
 					// Delete the loading message
 					await bot.deleteMessage(chatId, loadingMsg.message_id);
@@ -103,26 +103,58 @@ module.exports = async (req, res) => {
 
 						try {
 							questionMessage = await bot.sendMediaGroup(chatId, media);
+							// Store answer for the first message in the group
+							if (answer && questionMessage[0]) {
+								const cacheKey = `${chatId}_${questionMessage[0].message_id}`;
+								answerCache.set(cacheKey, answer);
+
+								// Send a separate message with the button
+								await bot.sendMessage(chatId, "👆 Нажмите кнопку, чтобы увидеть ответ:", {
+									reply_to_message_id: questionMessage[0].message_id,
+									reply_markup: {
+										inline_keyboard: [
+											[
+												{
+													text: "Показать ответ",
+													callback_data: `answer_${questionMessage[0].message_id}`,
+												},
+											],
+										],
+									},
+								});
+							}
 						} catch (imgError) {
 							console.error("Error sending media group:", imgError);
 							// Fallback: send message without images
-							await bot.sendMessage(chatId, question, {
+							questionMessage = await bot.sendMessage(chatId, question, {
 								parse_mode: "MarkdownV2",
+								reply_markup: {
+									inline_keyboard: [
+										[{ text: "Показать ответ", callback_data: `answer_${Date.now()}` }],
+									],
+								},
 							});
+
+							if (answer) {
+								const cacheKey = `${chatId}_${questionMessage.message_id}`;
+								answerCache.set(cacheKey, answer);
+							}
 						}
 					} else {
 						// No images, send regular message
 						questionMessage = await bot.sendMessage(chatId, question, {
 							parse_mode: "MarkdownV2",
+							reply_markup: {
+								inline_keyboard: [
+									[{ text: "Показать ответ", callback_data: `answer_${Date.now()}` }],
+								],
+							},
 						});
-					}
 
-					if (messageText.includes("split")) {
-						// Send question answer as regular message
-						await bot.sendMessage(chatId, answer, {
-							parse_mode: "MarkdownV2",
-							reply_to_message_id: questionMessage.message_id,
-						});
+						if (answer) {
+							const cacheKey = `${chatId}_${questionMessage.message_id}`;
+							answerCache.set(cacheKey, answer);
+						}
 					}
 				} catch (error) {
 					console.error("Error loading question:", error);
@@ -132,6 +164,45 @@ module.exports = async (req, res) => {
 					);
 				}
 			}
+		}
+
+		// Handle callback queries (button clicks)
+		if (update.callback_query) {
+			const callbackQuery = update.callback_query;
+			const chatId = callbackQuery.message.chat.id;
+			const data = callbackQuery.data;
+
+			if (data.startsWith("answer_")) {
+				const messageId = data.replace("answer_", "");
+				const cacheKey = `${chatId}_${messageId}`;
+				const answer = answerCache.get(cacheKey);
+
+				if (answer) {
+					// Send the answer as a reply
+					await bot.sendMessage(chatId, answer, {
+						parse_mode: "MarkdownV2",
+						reply_to_message_id: callbackQuery.message.message_id,
+					});
+
+					// Remove the button after showing answer
+					await bot.editMessageReplyMarkup(
+						{ inline_keyboard: [] },
+						{ chat_id: chatId, message_id: callbackQuery.message.message_id }
+					);
+
+					// Clean up cache
+					answerCache.delete(cacheKey);
+				} else {
+					// Answer not found in cache
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "Ответ не найден. Попробуйте загрузить вопрос снова.",
+						show_alert: true,
+					});
+				}
+			}
+
+			// Acknowledge the callback
+			await bot.answerCallbackQuery(callbackQuery.id);
 		}
 
 		// Respond with 200 OK to acknowledge receipt
