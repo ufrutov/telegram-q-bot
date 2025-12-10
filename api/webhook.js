@@ -7,9 +7,6 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 // Initialize question loader
 const questionLoader = new QuestionLoader();
 
-// In-memory cache for storing answers (key: chatId_messageId, value: answer text)
-const answerCache = new Map();
-
 /**
  * Validates the Telegram bot token format
  * Telegram bot tokens follow the format: <bot_id>:<hash>
@@ -126,34 +123,38 @@ module.exports = async (req, res) => {
 						} catch (imgError) {
 							console.error("Error sending media group:", imgError);
 							// Fallback: send message without images
+							const answerEncoded = Buffer.from(answer || "").toString("base64");
+
 							questionMessage = await bot.sendMessage(chatId, question, {
 								parse_mode: "MarkdownV2",
 								reply_markup: {
-									inline_keyboard: [
-										[{ text: "Показать ответ", callback_data: `answer_${Date.now()}` }],
-									],
+									inline_keyboard: [[{ text: "Показать ответ", callback_data: "show_answer" }]],
 								},
 							});
 
+							// Send a hidden message with encoded answer
 							if (answer) {
-								const cacheKey = `${chatId}_${questionMessage.message_id}`;
-								answerCache.set(cacheKey, answer);
+								await bot.sendMessage(chatId, `<!-- ${answerEncoded} -->`, {
+									reply_to_message_id: questionMessage.message_id,
+								});
 							}
 						}
 					} else {
-						// No images, send regular message
+						// No images, send regular message with button
+						const answerEncoded = Buffer.from(answer || "").toString("base64");
+
 						questionMessage = await bot.sendMessage(chatId, question, {
 							parse_mode: "MarkdownV2",
 							reply_markup: {
-								inline_keyboard: [
-									[{ text: "Показать ответ", callback_data: `answer_${Date.now()}` }],
-								],
+								inline_keyboard: [[{ text: "Показать ответ", callback_data: "show_answer" }]],
 							},
 						});
 
+						// Send a hidden message with encoded answer
 						if (answer) {
-							const cacheKey = `${chatId}_${questionMessage.message_id}`;
-							answerCache.set(cacheKey, answer);
+							await bot.sendMessage(chatId, `<!-- ${answerEncoded} -->`, {
+								reply_to_message_id: questionMessage.message_id,
+							});
 						}
 					}
 				} catch (error) {
@@ -170,39 +171,58 @@ module.exports = async (req, res) => {
 		if (update.callback_query) {
 			const callbackQuery = update.callback_query;
 			const chatId = callbackQuery.message.chat.id;
+			const messageId = callbackQuery.message.message_id;
 			const data = callbackQuery.data;
 
-			if (data.startsWith("answer_")) {
-				const messageId = data.replace("answer_", "");
-				const cacheKey = `${chatId}_${messageId}`;
-				const answer = answerCache.get(cacheKey);
+			if (data === "show_answer") {
+				try {
+					// Try to extract answer from the button message text
+					const messageText = callbackQuery.message.text || "";
+					const match = messageText.match(/<!-- (.+?) -->/);
 
-				if (answer) {
-					// Send the answer as a reply
-					await bot.sendMessage(chatId, answer, {
-						parse_mode: "MarkdownV2",
-						reply_to_message_id: callbackQuery.message.message_id,
-					});
+					let answer = null;
+					if (match) {
+						// Decode base64 answer
+						answer = Buffer.from(match[1], "base64").toString("utf-8");
+					} else {
+						// Try to find answer in reply_to_message if it exists
+						const replyToMessageId = callbackQuery.message.reply_to_message?.message_id;
+						if (replyToMessageId) {
+							// Get the replied message (not directly available, need to track)
+							// Alternative: look for the next message after button message
+						}
+					}
 
-					// Remove the button after showing answer
-					await bot.editMessageReplyMarkup(
-						{ inline_keyboard: [] },
-						{ chat_id: chatId, message_id: callbackQuery.message.message_id }
-					);
+					if (answer) {
+						// Send the answer as a reply
+						await bot.sendMessage(chatId, answer, {
+							parse_mode: "MarkdownV2",
+							reply_to_message_id: messageId,
+						});
 
-					// Clean up cache
-					answerCache.delete(cacheKey);
-				} else {
-					// Answer not found in cache
+						// Remove the button after showing answer
+						await bot.editMessageReplyMarkup(
+							{ inline_keyboard: [] },
+							{ chat_id: chatId, message_id: messageId }
+						);
+					} else {
+						// Answer not found
+						await bot.answerCallbackQuery(callbackQuery.id, {
+							text: "Ответ не найден. Попробуйте загрузить вопрос снова.",
+							show_alert: true,
+						});
+					}
+				} catch (error) {
+					console.error("Error showing answer:", error);
 					await bot.answerCallbackQuery(callbackQuery.id, {
-						text: "Ответ не найден. Попробуйте загрузить вопрос снова.",
+						text: "Произошла ошибка при показе ответа.",
 						show_alert: true,
 					});
 				}
+			} else {
+				// Acknowledge other callbacks
+				await bot.answerCallbackQuery(callbackQuery.id);
 			}
-
-			// Acknowledge the callback
-			await bot.answerCallbackQuery(callbackQuery.id);
 		}
 
 		// Respond with 200 OK to acknowledge receipt
