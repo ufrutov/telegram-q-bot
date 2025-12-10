@@ -96,13 +96,16 @@ module.exports = async (req, res) => {
 					const questionLoader = QuestionLoader(target[messageText]);
 
 					const questionData = await questionLoader.loadQuestion();
-					const { question, answer } = questionLoader.formatForTelegram(questionData, true);
+					const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
 
 					// Delete the loading message
 					await bot.deleteMessage(chatId, loadingMsg.message_id);
 
 					// Question message reference for answer reply
 					let questionMessage;
+
+					// Prepare answer key for inline button
+					const answerKey = `answer:${chatId}:${Date.now()}`;
 
 					// Send question with images as media group or regular message
 					if (questionData.questionPreview && questionData.questionPreview.length > 0) {
@@ -125,40 +128,34 @@ module.exports = async (req, res) => {
 							// Fallback: send message without images
 							questionMessage = await bot.sendMessage(chatId, question, {
 								parse_mode: "MarkdownV2",
+								reply_markup: {
+									inline_keyboard: [
+										[
+											{
+												text: "📖 Показать ответ",
+												callback_data: answerKey,
+											},
+										],
+									],
+								},
 							});
 						}
 					} else {
-						// No images, send regular message
+						// No images, send regular message with inline button
 						questionMessage = await bot.sendMessage(chatId, question, {
 							parse_mode: "MarkdownV2",
-						});
-					}
-
-					// Store answer data in Redis with 1 hour TTL
-					const answerKey = `answer:${chatId}:${questionMessage.message_id}`;
-					if (redisClient) {
-						await redisClient.setEx(
-							answerKey,
-							3600, // Expires in 1 hour
-							JSON.stringify({
-								answer,
-								answerPreview: questionData.answerPreview || [],
-							})
-						);
-					} // Send inline button to show answer
-					await bot.sendMessage(chatId, "👇 Нажмите кнопку, чтобы увидеть ответ:", {
-						reply_to_message_id: questionMessage.message_id,
-						reply_markup: {
-							inline_keyboard: [
-								[
-									{
-										text: "📖 Показать ответ",
-										callback_data: answerKey,
-									},
+							reply_markup: {
+								inline_keyboard: [
+									[
+										{
+											text: "📖 Показать ответ",
+											callback_data: answerKey,
+										},
+									],
 								],
-							],
-						},
-					});
+							},
+						});
+					} // Store answer data in Redis with 1 hour TTL
 				} catch (error) {
 					console.error("Error loading question:", error);
 					await bot.sendMessage(
@@ -228,10 +225,19 @@ module.exports = async (req, res) => {
 					});
 				}
 
-				// Answer the callback query to remove loading state
-				await bot.answerCallbackQuery(callbackQuery.id, {
-					text: "✅ Ответ отправлен",
-				});
+				// Remove inline button from question message
+				try {
+					await bot.editMessageReplyMarkup(
+						{ inline_keyboard: [] },
+						{
+							chat_id: chatId,
+							message_id: callbackQuery.message.message_id,
+						}
+					);
+				} catch (editError) {
+					console.error("Error removing reply markup:", editError);
+					// Ignore error if message can't be edited (e.g., media group)
+				}
 
 				// Delete the answer from Redis (one-time use)
 				if (redisClient) {
