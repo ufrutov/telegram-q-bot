@@ -1,5 +1,6 @@
 const TelegramBot = require("node-telegram-bot-api");
 const QuestionLoader = require("../lib/QuestionLoader/QuestionLoader");
+const { kv } = require("@vercel/kv");
 
 // Get the bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -119,38 +120,31 @@ module.exports = async (req, res) => {
 						});
 					}
 
-					// Send answer with images as media group or regular message
-					if (questionData.answerPreview && questionData.answerPreview.length > 0) {
-						// Send answer images as media group with caption
-						const media = questionData.answerPreview.map((url, index) => ({
-							type: "photo",
-							media: url,
-							// Only add caption to the first image
-							...(index === 0 && {
-								caption: answer,
-								parse_mode: "MarkdownV2",
-							}),
-						}));
+					// Store answer data in Redis with 1 hour TTL
+					const answerKey = `answer:${chatId}:${questionMessage.message_id}`;
+					await kv.set(
+						answerKey,
+						JSON.stringify({
+							answer,
+							answerPreview: questionData.answerPreview || [],
+						}),
+						{ ex: 3600 } // Expires in 1 hour
+					);
 
-						try {
-							await bot.sendMediaGroup(chatId, media, {
-								reply_to_message_id: questionMessage.message_id,
-							});
-						} catch (imgError) {
-							console.error("Error sending answer media group:", imgError);
-							// Fallback: send answer without images
-							await bot.sendMessage(chatId, answer, {
-								parse_mode: "MarkdownV2",
-								reply_to_message_id: questionMessage.message_id,
-							});
-						}
-					} else {
-						// No answer images, send regular message
-						await bot.sendMessage(chatId, answer, {
-							parse_mode: "MarkdownV2",
-							reply_to_message_id: questionMessage.message_id,
-						});
-					}
+					// Send inline button to show answer
+					await bot.sendMessage(chatId, "👇 Нажмите кнопку, чтобы увидеть ответ:", {
+						reply_to_message_id: questionMessage.message_id,
+						reply_markup: {
+							inline_keyboard: [
+								[
+									{
+										text: "📖 Показать ответ",
+										callback_data: answerKey,
+									},
+								],
+							],
+						},
+					});
 				} catch (error) {
 					console.error("Error loading question:", error);
 					await bot.sendMessage(
@@ -158,6 +152,81 @@ module.exports = async (req, res) => {
 						"❌ Произошла ошибка при загрузке вопроса. Попробуйте еще раз."
 					);
 				}
+			}
+		}
+
+		// Handle callback queries (inline button clicks)
+		if (update.callback_query) {
+			const callbackQuery = update.callback_query;
+			const chatId = callbackQuery.message?.chat?.id;
+			const answerKey = callbackQuery.data;
+
+			if (!chatId || !answerKey) {
+				return res.status(200).json({ ok: true });
+			}
+
+			try {
+				// Retrieve answer data from Redis
+				const answerDataStr = await kv.get(answerKey);
+
+				if (!answerDataStr) {
+					// Answer expired or not found
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "⏰ Ответ истёк. Запросите новый вопрос.",
+						show_alert: true,
+					});
+					return res.status(200).json({ ok: true });
+				}
+
+				const answerData = JSON.parse(answerDataStr);
+				const { answer, answerPreview } = answerData;
+
+				// Send answer with images or as regular message
+				if (answerPreview && answerPreview.length > 0) {
+					// Send answer images as media group with caption
+					const media = answerPreview.map((url, index) => ({
+						type: "photo",
+						media: url,
+						// Only add caption to the first image
+						...(index === 0 && {
+							caption: answer,
+							parse_mode: "MarkdownV2",
+						}),
+					}));
+
+					try {
+						await bot.sendMediaGroup(chatId, media, {
+							reply_to_message_id: callbackQuery.message.message_id,
+						});
+					} catch (imgError) {
+						console.error("Error sending answer media group:", imgError);
+						// Fallback: send answer without images
+						await bot.sendMessage(chatId, answer, {
+							parse_mode: "MarkdownV2",
+							reply_to_message_id: callbackQuery.message.message_id,
+						});
+					}
+				} else {
+					// No answer images, send regular message
+					await bot.sendMessage(chatId, answer, {
+						parse_mode: "MarkdownV2",
+						reply_to_message_id: callbackQuery.message.message_id,
+					});
+				}
+
+				// Answer the callback query to remove loading state
+				await bot.answerCallbackQuery(callbackQuery.id, {
+					text: "✅ Ответ отправлен",
+				});
+
+				// Delete the answer from Redis (one-time use)
+				await kv.del(answerKey);
+			} catch (error) {
+				console.error("Error handling callback query:", error);
+				await bot.answerCallbackQuery(callbackQuery.id, {
+					text: "❌ Ошибка при загрузке ответа",
+					show_alert: true,
+				});
 			}
 		}
 
