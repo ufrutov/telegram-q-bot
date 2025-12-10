@@ -1,9 +1,18 @@
 const TelegramBot = require("node-telegram-bot-api");
 const QuestionLoader = require("../lib/QuestionLoader/QuestionLoader");
-const { kv } = require("@vercel/kv");
+const { createClient } = require("redis");
 
 // Get the bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
+
+// Initialize Redis client
+let redisClient;
+if (process.env.REDIS_URL) {
+	redisClient = createClient({
+		url: process.env.REDIS_URL,
+	});
+	redisClient.on("error", (err) => console.error("Redis Client Error", err));
+}
 
 /**
  * Validates the Telegram bot token format
@@ -49,6 +58,11 @@ module.exports = async (req, res) => {
 	}
 
 	try {
+		// Connect Redis client if not already connected
+		if (redisClient && !redisClient.isOpen) {
+			await redisClient.connect();
+		}
+
 		const update = req.body;
 
 		// Validate request body structure
@@ -122,16 +136,16 @@ module.exports = async (req, res) => {
 
 					// Store answer data in Redis with 1 hour TTL
 					const answerKey = `answer:${chatId}:${questionMessage.message_id}`;
-					await kv.set(
-						answerKey,
-						JSON.stringify({
-							answer,
-							answerPreview: questionData.answerPreview || [],
-						}),
-						{ ex: 3600 } // Expires in 1 hour
-					);
-
-					// Send inline button to show answer
+					if (redisClient) {
+						await redisClient.setEx(
+							answerKey,
+							3600, // Expires in 1 hour
+							JSON.stringify({
+								answer,
+								answerPreview: questionData.answerPreview || [],
+							})
+						);
+					} // Send inline button to show answer
 					await bot.sendMessage(chatId, "👇 Нажмите кнопку, чтобы увидеть ответ:", {
 						reply_to_message_id: questionMessage.message_id,
 						reply_markup: {
@@ -167,7 +181,7 @@ module.exports = async (req, res) => {
 
 			try {
 				// Retrieve answer data from Redis
-				const answerDataStr = await kv.get(answerKey);
+				const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
 
 				if (!answerDataStr) {
 					// Answer expired or not found
@@ -220,7 +234,9 @@ module.exports = async (req, res) => {
 				});
 
 				// Delete the answer from Redis (one-time use)
-				await kv.del(answerKey);
+				if (redisClient) {
+					await redisClient.del(answerKey);
+				}
 			} catch (error) {
 				console.error("Error handling callback query:", error);
 				await bot.answerCallbackQuery(callbackQuery.id, {

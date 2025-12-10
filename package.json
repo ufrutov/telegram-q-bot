@@ -18,7 +18,7 @@
     "node": ">=18.x"
   },
   "dependencies": {
-    "@vercel/kv": "^3.0.0",
-    "node-telegram-bot-api": "^0.66.0"
+    "node-telegram-bot-api": "^0.66.0",
+    "redis": "^5.10.0"
   }
 }
