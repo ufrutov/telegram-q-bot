@@ -123,6 +123,21 @@ module.exports = async (req, res) => {
 						try {
 							const messages = await bot.sendMediaGroup(chatId, media);
 							questionMessage = messages[0]; // Use first message for reply reference
+
+							// Send inline button as separate message after media group
+							await bot.sendMessage(chatId, "👇", {
+								reply_to_message_id: questionMessage.message_id,
+								reply_markup: {
+									inline_keyboard: [
+										[
+											{
+												text: "📖 Показать ответ",
+												callback_data: answerKey,
+											},
+										],
+									],
+								},
+							});
 						} catch (imgError) {
 							console.error("Error sending question media group:", imgError);
 							// Fallback: send message without images
