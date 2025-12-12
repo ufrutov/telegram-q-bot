@@ -252,30 +252,18 @@ module.exports = async (req, res) => {
 					});
 				}
 
-				// Remove the separate button message (preferred) with fallback to clearing markup
+				// Remove inline button from question message
 				try {
-					// Try to delete the callback message (this is the separate "Ответ на вопрос" message when used)
-					await bot.deleteMessage(chatId, callbackQuery.message.message_id);
-				} catch (delErr) {
-					console.error("Error deleting button message, falling back to edit:", delErr);
-					try {
-						await bot.editMessageReplyMarkup(
-							{ inline_keyboard: [] },
-							{
-								chat_id: chatId,
-								message_id: callbackQuery.message.message_id,
-							}
-						);
-					} catch (editError) {
-						console.error("Error clearing reply markup as fallback:", editError);
-					}
-				}
-
-				// Answer the callback query to remove loading state
-				try {
-					await bot.answerCallbackQuery(callbackQuery.id, { text: "✅ Ответ отправлен" });
-				} catch (aqErr) {
-					console.error("Error answering callback query:", aqErr);
+					await bot.editMessageReplyMarkup(
+						{ inline_keyboard: [] },
+						{
+							chat_id: chatId,
+							message_id: callbackQuery.message.message_id,
+						}
+					);
+				} catch (editError) {
+					console.error("Error removing reply markup:", editError);
+					// Ignore error if message can't be edited (e.g., media group)
 				}
 
 				// Delete the answer from Redis (one-time use)
