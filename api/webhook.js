@@ -245,6 +245,7 @@ module.exports = async (req, res) => {
 						await bot.sendMessage(chatId, answer, {
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: callbackQuery.message.message_id,
+							disable_web_page_preview: true,
 						});
 					}
 				} else {
@@ -252,6 +253,7 @@ module.exports = async (req, res) => {
 					await bot.sendMessage(chatId, answer, {
 						parse_mode: "MarkdownV2",
 						reply_to_message_id: callbackQuery.message.message_id,
+						disable_web_page_preview: true,
 					});
 				}
 
