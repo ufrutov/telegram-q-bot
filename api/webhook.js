@@ -88,12 +88,15 @@ module.exports = async (req, res) => {
 					// Load a random question from chgk.info
 					const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
-					// Initialize question loader (using questions.chgk.info by default)
-					const target = {
-						"/question": "questions.chgk.info",
-						"/question2": "gotquestions.online",
+					// Initialize question loader
+					const target = "gotquestions.online";
+					const complexity = {
+						"/question": "random",
+						"/questioneasy": "easy",
+						"/questionmedium": "medium",
+						"/questionhard": "hard",
 					};
-					const questionLoader = QuestionLoader(target[messageText]);
+					const questionLoader = QuestionLoader(target, complexity[messageText]);
 
 					const questionData = await questionLoader.loadQuestion();
 					const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
