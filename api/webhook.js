@@ -146,6 +146,7 @@ module.exports = async (req, res) => {
 							// Fallback: send message without images
 							questionMessage = await bot.sendMessage(chatId, question, {
 								parse_mode: "MarkdownV2",
+								disable_web_page_preview: true,
 								reply_markup: {
 									inline_keyboard: [
 										[
@@ -162,6 +163,7 @@ module.exports = async (req, res) => {
 						// No images, send regular message with inline button
 						questionMessage = await bot.sendMessage(chatId, question, {
 							parse_mode: "MarkdownV2",
+							disable_web_page_preview: true,
 							reply_markup: {
 								inline_keyboard: [
 									[
