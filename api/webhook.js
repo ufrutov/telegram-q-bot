@@ -223,7 +223,7 @@ module.exports = async (req, res) => {
 
 				// Handle /menu command
 				if (messageText.startsWith("/menu")) {
-					bot.sendMessage(chatId, "❓ Выбор категории вопроса:", {
+					await bot.sendMessage(chatId, "❓ Выбор категории вопроса:", {
 						parse_mode: "MarkdownV2",
 						reply_markup: {
 							inline_keyboard: [
@@ -366,7 +366,7 @@ module.exports = async (req, res) => {
 					// Remove separated message after question with media group
 					if (questionMessageId) {
 						try {
-							bot.deleteMessage(chatId, questionMessageId);
+							await bot.deleteMessage(chatId, questionMessageId);
 						} catch (deleteError) {
 							console.error(
 								"Error deleteing separated message after question with media group:",
