@@ -82,7 +82,6 @@ async function sendQuestionMessage(chatId, complexity) {
 									callback_data: JSON.stringify({
 										action: "answer",
 										answerKey,
-										questionMessageId: questionMessage.message_id,
 									}),
 								},
 							],
@@ -92,9 +91,12 @@ async function sendQuestionMessage(chatId, complexity) {
 
 				// Store answer data in Redis (24h) if available
 				if (redisClient) {
-					const questionLoaderForStore = questionLoader; // reuse
 					const answerPreview = questionData.answerPreview || [];
-					await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
+					await redisClient.setEx(
+						answerKey,
+						3600 * 24,
+						JSON.stringify({ answer, answerPreview, questionMessageId: questionMessage.message_id })
+					);
 				}
 
 				return { answerKey, questionMessageId: separate.message_id };
@@ -109,7 +111,10 @@ async function sendQuestionMessage(chatId, complexity) {
 							[
 								{
 									text: "📖 Показать ответ",
-									callback_data: JSON.stringify({ action: "answer", answerKey }),
+									callback_data: JSON.stringify({
+										action: "answer",
+										answerKey,
+									}),
 								},
 							],
 						],
@@ -301,16 +306,12 @@ module.exports = async (req, res) => {
 
 			if (parsed && parsed.action === "answer") {
 				const answerKey = parsed.answerKey;
-				const questionMessageId = parsed.questionMessageId;
 				if (!answerKey) {
 					return res.status(200).json({ ok: true });
 				}
 				try {
 					// Retrieve answer data from Redis
 					const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
-
-					// Reply to question message
-					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
 
 					if (!answerDataStr) {
 						// Answer expired or not found
@@ -322,7 +323,10 @@ module.exports = async (req, res) => {
 					}
 
 					const answerData = JSON.parse(answerDataStr);
-					const { answer, answerPreview } = answerData;
+					const { answer, answerPreview, questionMessageId = undefined } = answerData;
+
+					// Reply to question message
+					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
 
 					// Send answer with images or as regular message
 					if (answerPreview && answerPreview.length > 0) {
