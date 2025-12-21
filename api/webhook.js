@@ -80,7 +80,6 @@ async function sendQuestionMessage(chatId, complexity) {
 								{
 									text: "📖 Показать ответ",
 									callback_data: JSON.stringify({
-										action: "answer",
 										answerKey,
 									}),
 								},
@@ -112,7 +111,6 @@ async function sendQuestionMessage(chatId, complexity) {
 								{
 									text: "📖 Показать ответ",
 									callback_data: JSON.stringify({
-										action: "answer",
 										answerKey,
 									}),
 								},
@@ -138,7 +136,7 @@ async function sendQuestionMessage(chatId, complexity) {
 						[
 							{
 								text: "📖 Показать ответ",
-								callback_data: JSON.stringify({ action: "answer", answerKey }),
+								callback_data: JSON.stringify({ answerKey }),
 							},
 						],
 					],
@@ -304,7 +302,7 @@ module.exports = async (req, res) => {
 				}
 			}
 
-			if (parsed && parsed.action === "answer") {
+			if (parsed && parsed.answerKey) {
 				const answerKey = parsed.answerKey;
 				if (!answerKey) {
 					return res.status(200).json({ ok: true });
