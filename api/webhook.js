@@ -370,7 +370,7 @@ module.exports = async (req, res) => {
 					// Remove separated message after question with media group
 					if (questionMessageId) {
 						try {
-							await bot.deleteMessage(chatId, questionMessageId);
+							await bot.deleteMessage(chatId, callbackQuery.message.message_id);
 						} catch (deleteError) {
 							console.error(
 								"Error deleteing separated message after question with media group:",
