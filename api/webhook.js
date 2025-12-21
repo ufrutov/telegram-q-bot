@@ -80,6 +80,7 @@ async function sendQuestionMessage(chatId, complexity) {
 								{
 									text: "📖 Показать ответ",
 									callback_data: JSON.stringify({
+										action: "answer",
 										answerKey,
 										questionMessageId: questionMessage.message_id,
 									}),
@@ -108,7 +109,7 @@ async function sendQuestionMessage(chatId, complexity) {
 							[
 								{
 									text: "📖 Показать ответ",
-									callback_data: JSON.stringify({ answerKey }),
+									callback_data: JSON.stringify({ action: "answer", answerKey }),
 								},
 							],
 						],
@@ -132,7 +133,7 @@ async function sendQuestionMessage(chatId, complexity) {
 						[
 							{
 								text: "📖 Показать ответ",
-								callback_data: JSON.stringify({ answerKey }),
+								callback_data: JSON.stringify({ action: "answer", answerKey }),
 							},
 						],
 					],
@@ -159,6 +160,7 @@ async function sendQuestionMessage(chatId, complexity) {
 		return null;
 	}
 }
+
 /**
  * Vercel Serverless Function for Telegram Bot Webhook
  *
@@ -228,25 +230,25 @@ module.exports = async (req, res) => {
 								[
 									{
 										text: "Лёгкий вопрос",
-										callback_data: "easy",
+										callback_data: JSON.stringify({ action: "question", complexity: "easy" }),
 									},
 								],
 								[
 									{
 										text: "Стандартный вопрос",
-										callback_data: "medium",
+										callback_data: JSON.stringify({ action: "question", complexity: "medium" }),
 									},
 								],
 								[
 									{
 										text: "Сложный вопрос",
-										callback_data: "hard",
+										callback_data: JSON.stringify({ action: "question", complexity: "hard" }),
 									},
 								],
 								[
 									{
 										text: "Случайный вопрос",
-										callback_data: "random",
+										callback_data: JSON.stringify({ action: "question", complexity: "random" }),
 									},
 								],
 							],
@@ -261,135 +263,131 @@ module.exports = async (req, res) => {
 			const callbackQuery = update.callback_query;
 			const chatId = callbackQuery.message?.chat?.id;
 
-			// callback data may be JSON (answer) or simple string (menu selection)
-			let answerKey;
-			let questionMessageId = undefined;
+			// Expect callback_data as JSON with an `action` field
 			const dataStr = callbackQuery.data;
 			let parsed = null;
 			try {
 				parsed = JSON.parse(dataStr);
-				answerKey = parsed.answerKey;
-				questionMessageId = parsed.questionMessageId;
 			} catch (e) {
-				// Not JSON: treat as menu/category callback
-				const category = dataStr;
-				if (chatId && ["easy", "medium", "hard", "random"].includes(category)) {
-					try {
-						await bot.answerCallbackQuery(callbackQuery.id);
-						await sendQuestionMessage(chatId, category);
-
-						// remove menu message completelly
-						try {
-							await bot.deleteMessage(chatId, callbackQuery.message.message_id);
-						} catch (e2) {
-							// ignore
-						}
-						return res.status(200).json({ ok: true });
-					} catch (err) {
-						console.error("Error handling category callback:", err);
-						await bot.answerCallbackQuery(callbackQuery.id, {
-							text: "❌ Ошибка при загрузке вопроса",
-							show_alert: true,
-						});
-						return res.status(200).json({ ok: true });
-					}
-				}
+				parsed = null;
 			}
 
-			if (!chatId || !answerKey) {
+			if (!chatId) {
 				return res.status(200).json({ ok: true });
 			}
 
-			try {
-				// Retrieve answer data from Redis
-				const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
-
-				// Reply to question message
-				const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
-
-				if (!answerDataStr) {
-					// Answer expired or not found
+			if (parsed && parsed.action === "question") {
+				// Menu -> request a question of given complexity
+				const complexity = parsed.complexity || "random";
+				try {
+					await bot.answerCallbackQuery(callbackQuery.id);
+					await sendQuestionMessage(chatId, complexity);
+					// remove the menu message
+					try {
+						await bot.deleteMessage(chatId, callbackQuery.message.message_id);
+					} catch (e2) {
+						// ignore
+					}
+					return res.status(200).json({ ok: true });
+				} catch (err) {
+					console.error("Error handling question callback:", err);
 					await bot.answerCallbackQuery(callbackQuery.id, {
-						text: "⏰ Ответ истёк. Запросите новый вопрос.",
+						text: "❌ Ошибка при загрузке вопроса",
 						show_alert: true,
 					});
 					return res.status(200).json({ ok: true });
 				}
+			}
 
-				const answerData = JSON.parse(answerDataStr);
-				const { answer, answerPreview } = answerData;
+			if (parsed && parsed.action === "answer") {
+				const answerKey = parsed.answerKey;
+				const questionMessageId = parsed.questionMessageId;
+				if (!answerKey) {
+					return res.status(200).json({ ok: true });
+				}
+				try {
+					// Retrieve answer data from Redis
+					const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
 
-				// Send answer with images or as regular message
-				if (answerPreview && answerPreview.length > 0) {
-					// Send answer images as media group with caption
-					const media = answerPreview.map((url, index) => ({
-						type: "photo",
-						media: url,
-						// Only add caption to the first image
-						...(index === 0 && {
-							caption: answer,
-							parse_mode: "MarkdownV2",
-						}),
-					}));
+					// Reply to question message
+					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
 
-					try {
-						await bot.sendMediaGroup(chatId, media, {
-							reply_to_message_id: messageToReply,
+					if (!answerDataStr) {
+						// Answer expired or not found
+						await bot.answerCallbackQuery(callbackQuery.id, {
+							text: "⏰ Ответ истёк. Запросите новый вопрос.",
+							show_alert: true,
 						});
-					} catch (imgError) {
-						console.error("Error sending answer media group:", imgError);
-						// Fallback: send answer without images
+						return res.status(200).json({ ok: true });
+					}
+
+					const answerData = JSON.parse(answerDataStr);
+					const { answer, answerPreview } = answerData;
+
+					// Send answer with images or as regular message
+					if (answerPreview && answerPreview.length > 0) {
+						const media = answerPreview.map((url, index) => ({
+							type: "photo",
+							media: url,
+							...(index === 0 && {
+								caption: answer,
+								parse_mode: "MarkdownV2",
+							}),
+						}));
+
+						try {
+							await bot.sendMediaGroup(chatId, media, { reply_to_message_id: messageToReply });
+						} catch (imgError) {
+							console.error("Error sending answer media group:", imgError);
+							await bot.sendMessage(chatId, answer, {
+								parse_mode: "MarkdownV2",
+								reply_to_message_id: messageToReply,
+								disable_web_page_preview: true,
+							});
+						}
+					} else {
 						await bot.sendMessage(chatId, answer, {
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: messageToReply,
 							disable_web_page_preview: true,
 						});
 					}
-				} else {
-					// No answer images, send regular message
-					await bot.sendMessage(chatId, answer, {
-						parse_mode: "MarkdownV2",
-						reply_to_message_id: messageToReply,
-						disable_web_page_preview: true,
-					});
-				}
 
-				// Remove inline button from question message
-				try {
-					await bot.editMessageReplyMarkup(
-						{ inline_keyboard: [] },
-						{
-							chat_id: chatId,
-							message_id: callbackQuery.message.message_id,
-						}
-					);
-				} catch (editError) {
-					console.error("Error removing reply markup:", editError);
-					// Ignore error if message can't be edited (e.g., media group)
-				}
-
-				// Remove separated message after question with media group
-				if (questionMessageId) {
+					// Remove inline button from question message
 					try {
-						bot.deleteMessage(chatId, questionMessageId);
-					} catch (deleteError) {
-						console.error(
-							"Error deleteing separated message after question with media group:",
-							deleteError
+						await bot.editMessageReplyMarkup(
+							{ inline_keyboard: [] },
+							{ chat_id: chatId, message_id: callbackQuery.message.message_id }
 						);
+					} catch (editError) {
+						console.error("Error removing reply markup:", editError);
 					}
-				}
 
-				// Delete the answer from Redis (one-time use)
-				if (redisClient) {
-					await redisClient.del(answerKey);
+					// Remove separated message after question with media group
+					if (questionMessageId) {
+						try {
+							bot.deleteMessage(chatId, questionMessageId);
+						} catch (deleteError) {
+							console.error(
+								"Error deleteing separated message after question with media group:",
+								deleteError
+							);
+						}
+					}
+
+					// Delete the answer from Redis (one-time use)
+					if (redisClient) {
+						await redisClient.del(answerKey);
+					}
+					return res.status(200).json({ ok: true });
+				} catch (error) {
+					console.error("Error handling callback query (answer):", error);
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "❌ Ошибка при загрузке ответа",
+						show_alert: true,
+					});
+					return res.status(200).json({ ok: true });
 				}
-			} catch (error) {
-				console.error("Error handling callback query:", error);
-				await bot.answerCallbackQuery(callbackQuery.id, {
-					text: "❌ Ошибка при загрузке ответа",
-					show_alert: true,
-				});
 			}
 		}
 
