@@ -230,14 +230,20 @@ module.exports = async (req, res) => {
 										text: "Лёгкий вопрос",
 										callback_data: "easy",
 									},
+								],
+								[
 									{
 										text: "Стандартный вопрос",
 										callback_data: "medium",
 									},
+								],
+								[
 									{
 										text: "Сложный вопрос",
 										callback_data: "hard",
 									},
+								],
+								[
 									{
 										text: "Случайный вопрос",
 										callback_data: "random",
@@ -271,12 +277,10 @@ module.exports = async (req, res) => {
 					try {
 						await bot.answerCallbackQuery(callbackQuery.id);
 						await sendQuestionMessage(chatId, category);
-						// remove menu buttons
+
+						// remove menu message completelly
 						try {
-							await bot.editMessageReplyMarkup(
-								{ inline_keyboard: [] },
-								{ chat_id: chatId, message_id: callbackQuery.message.message_id }
-							);
+							await bot.deleteMessage(chatId, callbackQuery.message.message_id);
 						} catch (e2) {
 							// ignore
 						}
