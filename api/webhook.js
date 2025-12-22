@@ -5,6 +5,9 @@ const { createClient } = require("redis");
 // Get the bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
+// Default target questions service
+const target = "gotquestions.online";
+
 // Initialize Redis client
 let redisClient;
 if (process.env.REDIS_URL) {
@@ -40,7 +43,6 @@ async function sendQuestionMessage(chatId, complexity) {
 	try {
 		const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
-		const target = "gotquestions.online";
 		const questionLoader = QuestionLoader(target, complexity);
 
 		const questionData = await questionLoader.loadQuestion();
@@ -316,7 +318,7 @@ module.exports = async (req, res) => {
 					const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
 
 					const questionId = answerKey.split(":").at(2);
-					console.log(`[${chatId}] answer: ${QuestionLoader.baseUrl}/question/${questionId}`);
+					console.log(`[${chatId}] answer: https://${target}/question/${questionId}`);
 
 					if (!answerDataStr) {
 						// Answer expired or not found
@@ -330,7 +332,7 @@ module.exports = async (req, res) => {
 										[
 											{
 												text: `❓ Вопрос ${questionId}`,
-												url: `${QuestionLoader.baseUrl}/question/${questionId}`,
+												url: `https://${target}/question/${questionId}`,
 											},
 										],
 									],
