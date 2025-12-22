@@ -46,6 +46,8 @@ async function sendQuestionMessage(chatId, complexity) {
 		const questionData = await questionLoader.loadQuestion();
 		const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
 
+		console.log(`[${chatId}] ${complexity} question: ${questionData.link}`);
+
 		// Delete the loading message
 		try {
 			await bot.deleteMessage(chatId, loadingMsg.message_id);
@@ -54,7 +56,7 @@ async function sendQuestionMessage(chatId, complexity) {
 		}
 
 		// Prepare answer key for inline button
-		const answerKey = `answer:${chatId}:${Date.now()}`;
+		const answerKey = `answer:${chatId}:${questionData.id}}`;
 
 		// Send question with images as media group or regular message
 		if (questionData.questionPreview && questionData.questionPreview.length > 0) {
@@ -304,19 +306,38 @@ module.exports = async (req, res) => {
 
 			if (parsed && parsed.answerKey) {
 				const answerKey = parsed.answerKey;
+
 				if (!answerKey) {
 					return res.status(200).json({ ok: true });
 				}
+
 				try {
 					// Retrieve answer data from Redis
 					const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
 
+					const questionId = answerKey.split(":").at(2);
+					console.log(`[${chatId}] answer: ${QuestionLoader.baseUrl}/question/${questionId}`);
+
 					if (!answerDataStr) {
 						// Answer expired or not found
-						await bot.answerCallbackQuery(callbackQuery.id, {
-							text: "⏰ Ответ истёк. Запросите новый вопрос.",
-							show_alert: true,
-						});
+						await bot.sendMessage(
+							chatId,
+							"⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️",
+							{
+								parse_mode: "MarkdownV2",
+								reply_markup: {
+									inline_keyboard: [
+										[
+											{
+												text: `❓ Вопрос ${questionId}`,
+												url: `${QuestionLoader.baseUrl}/question/${questionId}`,
+											},
+										],
+									],
+								},
+							}
+						);
+
 						return res.status(200).json({ ok: true });
 					}
 
