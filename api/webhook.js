@@ -58,7 +58,7 @@ async function sendQuestionMessage(chatId, complexity) {
 		}
 
 		// Prepare answer key for inline button
-		const answerKey = `answer:${chatId}:${questionData.id}}`;
+		const answerKey = `answer:${chatId}:${questionData.id}`;
 
 		// Send question with images as media group or regular message
 		if (questionData.questionPreview && questionData.questionPreview.length > 0) {
