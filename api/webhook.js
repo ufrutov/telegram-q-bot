@@ -39,13 +39,13 @@ if (token && isValidTokenFormat(token)) {
 }
 
 // Helper to send a question message (media group or regular message) and return keys/message ids
-async function sendQuestionMessage(chatId, complexity) {
+async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 	try {
 		const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
 		const questionLoader = QuestionLoader(target, complexity);
 
-		const questionData = await questionLoader.loadQuestion();
+		const questionData = await questionLoader.loadQuestion(questionId);
 		const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
 
 		console.log(`[${chatId}] ${complexity} question: ${questionData.link}`);
@@ -218,14 +218,18 @@ module.exports = async (req, res) => {
 			if (messageText) {
 				// Handle /question command
 				if (messageText.startsWith("/question")) {
+					// Extract question ID if provided (e.g., /question 353991)
+					const parts = messageText.split(/\s+/);
+					const questionId = parts.length > 1 && /^\d+$/.test(parts[1]) ? parts[1] : null;
+
 					const complexityMap = {
 						"/question": "random",
 						"/questioneasy": "easy",
 						"/questionmedium": "medium",
 						"/questionhard": "hard",
 					};
-					const complexity = complexityMap[messageText] || "random";
-					await sendQuestionMessage(chatId, complexity);
+					const complexity = complexityMap[parts[0]] || "random";
+					await sendQuestionMessage(chatId, complexity, questionId);
 				}
 
 				// Handle /menu command
