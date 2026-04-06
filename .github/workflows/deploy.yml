@@ -18,6 +18,14 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Bump version
+        uses: phipsae/bump-version-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          target-branch: master
+          versioning-scheme: patch
+
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
