@@ -493,25 +493,7 @@ module.exports = async (req, res) => {
 					const hintData = JSON.parse(hintDataStr);
 					const { question, answer, description, questionMessageId } = hintData;
 
-					let hint;
-					try {
-						hint = await generateHint(question, answer, description);
-					} catch (genError) {
-						console.error("Error generating hint:", genError.message);
-						hint = formatErrorMessage(genError);
-					}
-
-					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
-					await bot.sendMessage(
-						chatId,
-						`💡 *Подсказка:*\n\n${escapeMarkdownV2(hint)}`,
-						{
-							parse_mode: "MarkdownV2",
-							reply_to_message_id: messageToReply,
-							disable_web_page_preview: true,
-						}
-					);
-
+					// Remove hint button immediately
 					try {
 						const answerKeyMatch = callbackQuery.message.reply_markup?.inline_keyboard?.[0]?.find(
 							(btn) => btn.text === "📖 Показать ответ"
@@ -527,6 +509,31 @@ module.exports = async (req, res) => {
 					} catch (editError) {
 						console.error("Error removing reply markup:", editError);
 					}
+
+					let hint;
+					try {
+						const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...");
+						hint = await generateHint(question, answer, description);
+						try {
+							await bot.deleteMessage(chatId, loadingMsg.message_id);
+						} catch (dErr) {
+							// ignore
+						}
+					} catch (genError) {
+						console.error("Error generating hint:", genError.message);
+						hint = formatErrorMessage(genError);
+					}
+
+					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
+					await bot.sendMessage(
+						chatId,
+						`💡 *Подсказка:*\n\n${escapeMarkdownV2(hint)}`,
+						{
+							parse_mode: "MarkdownV2",
+							reply_to_message_id: messageToReply,
+							disable_web_page_preview: true,
+						}
+					);
 
 					if (redisClient) {
 						await redisClient.del(hintKey);
