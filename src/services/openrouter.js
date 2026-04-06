@@ -13,12 +13,14 @@ spirit of the game:
 CORE PHILOSOPHY:
 - The answer must be DERIVABLE — the hint should give the team a logical path 
   to reach the answer themselves
-- Never give the answer away; give a key that unlocks the reasoning
+- NEVER give the answer away in any form — do NOT use synonyms, partial answers, 
+  or any text that could hint at the solution
 - Great hints in this format often involve etymology, historical context, 
   an unexpected connection, or a lateral thinking nudge
 
 RULES:
-- NEVER state or strongly imply the answer
+- NEVER state or imply the answer in any way — no words from the answer, 
+  no synonyms, no partial matches
 - Reveal one hidden connection, origin, or logical bridge that makes the 
   answer deducible
 - Prioritize: etymology > historical analogy > categorical logic > wordplay
@@ -38,7 +40,9 @@ TONE:
 - Write hints in RUSSIAN language
 
 OUTPUT FORMAT:
-Return only the hint text. Plain prose. No labels, no markdown.
+- Return ONLY the hint text as plain prose
+- NO labels, NO markdown, NO answer references
+- DO NOT include words like "ответ", "ответ:", "это", or any hint to the answer
 `.trim();
 
 async function generateHint(question, correctAnswer, description) {
@@ -46,8 +50,7 @@ async function generateHint(question, correctAnswer, description) {
 	if (description) {
 		userContent += `\nDescription: ${description}`;
 	}
-	userContent += `\n\nWrite a helpful hint in Russian language.`;
-
+	userContent += `\n\nWrite a helpful hint in Russian language. Important: Do NOT include the answer in your hint — give only a logical clue.`;
 	const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
 		method: "POST",
 		headers: {
