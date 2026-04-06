@@ -1,7 +1,7 @@
 const TelegramBot = require("node-telegram-bot-api");
 const QuestionLoader = require("../src/lib/QuestionLoader/QuestionLoader");
-const BaseQuestionLoader = require("../src/lib/QuestionLoader/BaseQuestionLoader");
 const { generateHint, formatErrorMessage } = require("../src/services/openrouter");
+const { escapeMarkdownV2 } = require("../src/utils/markdown");
 const { createClient } = require("redis");
 
 // Get the bot token from environment variables
@@ -504,7 +504,7 @@ module.exports = async (req, res) => {
 					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
 					await bot.sendMessage(
 						chatId,
-						`💡 *Подсказка:*\n\n${BaseQuestionLoader.escapeMarkdownV2(hint)}`,
+						`💡 *Подсказка:*\n\n${escapeMarkdownV2(hint)}`,
 						{
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: messageToReply,
