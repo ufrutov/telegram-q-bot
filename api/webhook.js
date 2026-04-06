@@ -106,7 +106,11 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 					await redisClient.setEx(
 						answerKey,
 						3600 * 24,
-						JSON.stringify({ answer, answerPreview, questionMessageId: questionMessage.message_id })
+						JSON.stringify({
+							answer,
+							answerPreview,
+							questionMessageId: questionMessage.message_id,
+						}),
 					);
 					// Store hint data
 					await redisClient.setEx(
@@ -117,7 +121,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 							answer: questionData.answer,
 							description: questionData.description,
 							questionMessageId: questionMessage.message_id,
-						})
+						}),
 					);
 				}
 
@@ -159,7 +163,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 							answer: questionData.answer,
 							description: questionData.description,
 							questionMessageId: questionMessage.message_id,
-						})
+						}),
 					);
 				}
 
@@ -197,7 +201,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 						answer: questionData.answer,
 						description: questionData.description,
 						questionMessageId: questionMessage.message_id,
-					})
+					}),
 				);
 			}
 
@@ -208,12 +212,35 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 		try {
 			await bot.sendMessage(
 				chatId,
-				"❌ Произошла ошибка при загрузке вопроса. Попробуйте еще раз."
+				"❌ Произошла ошибка при загрузке вопроса. Попробуйте еще раз.",
 			);
 		} catch (e) {
 			// ignore
 		}
 		return null;
+	}
+}
+
+/**
+ * Vercel Serverless Function for Telegram Bot Webhook
+ *
+ * This API route handles incoming webhook requests from Telegram.
+ * Configure your Telegram bot webhook URL to point to:
+ * https://your-vercel-domain.vercel.app/api/webhook
+ *
+ * @param {import('http').IncomingMessage} req - The HTTP request object
+ * @param {import('http').ServerResponse} res - The HTTP response object
+ */
+module.exports = async (req, res) => {
+	// Only accept POST requests from Telegram
+	if (req.method !== "POST") {
+		return res.status(405).json({ error: "Method not allowed" });
+	}
+
+	// Check if bot token is configured
+	if (!token || !bot) {
+		console.error("TELEGRAM_BOT_TOKEN is not configured");
+		return res.status(500).json({ error: "Bot not configured" });
 	}
 
 	try {
@@ -367,7 +394,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 										],
 									],
 								},
-							}
+							},
 						);
 
 						return res.status(200).json({ ok: true });
@@ -412,7 +439,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 					try {
 						await bot.editMessageReplyMarkup(
 							{ inline_keyboard: [] },
-							{ chat_id: chatId, message_id: callbackQuery.message.message_id }
+							{ chat_id: chatId, message_id: callbackQuery.message.message_id },
 						);
 					} catch (editError) {
 						console.error("Error removing reply markup:", editError);
@@ -425,7 +452,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 						} catch (deleteError) {
 							console.error(
 								"Error deleteing separated message after question with media group:",
-								deleteError
+								deleteError,
 							);
 						}
 					}
