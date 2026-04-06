@@ -1,4 +1,7 @@
+require("dotenv").config({ path: "../../../.env.local" });
+
 const QuestionLoader = require("../QuestionLoader");
+const { generateHint, formatErrorMessage } = require("../../../services/openrouter");
 
 async function testComplexity(complexity) {
 	console.log(`\n${"=".repeat(80)}`);
@@ -15,6 +18,17 @@ async function testComplexity(complexity) {
 
 		console.log("\n✅ Answer:");
 		console.log(question.answer);
+
+		if (["hard"].includes(complexity)) {
+			try {
+				const hint = await generateHint(question.question, question.answer, question.description);
+				console.log("\n💡 Hint:");
+				console.log(hint);
+			} catch (hintError) {
+				console.log("\n💡 Hint:");
+				console.log(formatErrorMessage(hintError));
+			}
+		}
 
 		if (question.description) {
 			console.log("\n💬 Description:");

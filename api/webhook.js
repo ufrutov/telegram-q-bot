@@ -1,5 +1,6 @@
 const TelegramBot = require("node-telegram-bot-api");
-const QuestionLoader = require("../lib/QuestionLoader/QuestionLoader");
+const QuestionLoader = require("../src/lib/QuestionLoader/QuestionLoader");
+const { generateHint, formatErrorMessage } = require("../src/services/openrouter");
 const { createClient } = require("redis");
 
 // Get the bot token from environment variables
@@ -59,6 +60,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 
 		// Prepare answer key for inline button
 		const answerKey = `answer:${chatId}:${questionData.id}`;
+		const hintKey = `hint:${chatId}:${questionData.id}`;
 
 		// Send question with images as media group or regular message
 		if (questionData.questionPreview && questionData.questionPreview.length > 0) {
@@ -87,6 +89,12 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 										answerKey,
 									}),
 								},
+								{
+									text: "✨ Подсказка",
+									callback_data: JSON.stringify({
+										hintKey,
+									}),
+								},
 							],
 						],
 					},
@@ -99,6 +107,17 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 						answerKey,
 						3600 * 24,
 						JSON.stringify({ answer, answerPreview, questionMessageId: questionMessage.message_id })
+					);
+					// Store hint data
+					await redisClient.setEx(
+						hintKey,
+						3600 * 24,
+						JSON.stringify({
+							question: questionData.question,
+							answer: questionData.answer,
+							description: questionData.description,
+							questionMessageId: questionMessage.message_id,
+						})
 					);
 				}
 
@@ -118,6 +137,12 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 										answerKey,
 									}),
 								},
+								{
+									text: "✨ Подсказка",
+									callback_data: JSON.stringify({
+										hintKey,
+									}),
+								},
 							],
 						],
 					},
@@ -126,6 +151,16 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 				if (redisClient) {
 					const answerPreview = questionData.answerPreview || [];
 					await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
+					await redisClient.setEx(
+						hintKey,
+						3600 * 24,
+						JSON.stringify({
+							question: questionData.question,
+							answer: questionData.answer,
+							description: questionData.description,
+							questionMessageId: questionMessage.message_id,
+						})
+					);
 				}
 
 				return { answerKey, questionMessageId: questionMessage.message_id };
@@ -142,6 +177,10 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 								text: "📖 Показать ответ",
 								callback_data: JSON.stringify({ answerKey }),
 							},
+							{
+								text: "✨ Подсказка",
+								callback_data: JSON.stringify({ hintKey }),
+							},
 						],
 					],
 				},
@@ -150,6 +189,16 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 			if (redisClient) {
 				const answerPreview = questionData.answerPreview || [];
 				await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
+				await redisClient.setEx(
+					hintKey,
+					3600 * 24,
+					JSON.stringify({
+						question: questionData.question,
+						answer: questionData.answer,
+						description: questionData.description,
+						questionMessageId: questionMessage.message_id,
+					})
+				);
 			}
 
 			return { answerKey, questionMessageId: questionMessage.message_id };
@@ -165,29 +214,6 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 			// ignore
 		}
 		return null;
-	}
-}
-
-/**
- * Vercel Serverless Function for Telegram Bot Webhook
- *
- * This API route handles incoming webhook requests from Telegram.
- * Configure your Telegram bot webhook URL to point to:
- * https://your-vercel-domain.vercel.app/api/webhook
- *
- * @param {import('http').IncomingMessage} req - The HTTP request object
- * @param {import('http').ServerResponse} res - The HTTP response object
- */
-module.exports = async (req, res) => {
-	// Only accept POST requests from Telegram
-	if (req.method !== "POST") {
-		return res.status(405).json({ error: "Method not allowed" });
-	}
-
-	// Check if bot token is configured
-	if (!token || !bot) {
-		console.error("TELEGRAM_BOT_TOKEN is not configured");
-		return res.status(500).json({ error: "Bot not configured" });
 	}
 
 	try {
@@ -413,6 +439,72 @@ module.exports = async (req, res) => {
 					console.error("Error handling callback query (answer):", error);
 					await bot.answerCallbackQuery(callbackQuery.id, {
 						text: "❌ Ошибка при загрузке ответа",
+						show_alert: true,
+					});
+					return res.status(200).json({ ok: true });
+				}
+			}
+
+			if (parsed && parsed.hintKey) {
+				const hintKey = parsed.hintKey;
+
+				if (!hintKey) {
+					return res.status(200).json({ ok: true });
+				}
+
+				try {
+					await bot.answerCallbackQuery(callbackQuery.id);
+
+					const hintDataStr = redisClient ? await redisClient.get(hintKey) : null;
+
+					if (!hintDataStr) {
+						await bot.sendMessage(chatId, "⏰ Время подсказки истекло.");
+						return res.status(200).json({ ok: true });
+					}
+
+					const hintData = JSON.parse(hintDataStr);
+					const { question, answer, description, questionMessageId } = hintData;
+
+					let hint;
+					try {
+						hint = await generateHint(question, answer, description);
+					} catch (genError) {
+						console.error("Error generating hint:", genError.message);
+						hint = formatErrorMessage(genError);
+					}
+
+					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
+					await bot.sendMessage(chatId, `💡 *Подсказка:*\n\n${hint}`, {
+						parse_mode: "MarkdownV2",
+						reply_to_message_id: messageToReply,
+						disable_web_page_preview: true,
+					});
+
+					try {
+						const answerKeyMatch = callbackQuery.message.reply_markup?.inline_keyboard?.[0]?.find(
+							(btn) => btn.text === "📖 Показать ответ"
+						);
+						const newKeyboard = answerKeyMatch
+							? { inline_keyboard: [[answerKeyMatch]] }
+							: { inline_keyboard: [] };
+
+						await bot.editMessageReplyMarkup(newKeyboard, {
+							chat_id: chatId,
+							message_id: callbackQuery.message.message_id,
+						});
+					} catch (editError) {
+						console.error("Error removing reply markup:", editError);
+					}
+
+					if (redisClient) {
+						await redisClient.del(hintKey);
+					}
+
+					return res.status(200).json({ ok: true });
+				} catch (error) {
+					console.error("Error handling callback query (hint):", error);
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "❌ Ошибка при загрузке подсказки",
 						show_alert: true,
 					});
 					return res.status(200).json({ ok: true });
