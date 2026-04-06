@@ -1,5 +1,6 @@
 const TelegramBot = require("node-telegram-bot-api");
 const QuestionLoader = require("../src/lib/QuestionLoader/QuestionLoader");
+const BaseQuestionLoader = require("../src/lib/QuestionLoader/BaseQuestionLoader");
 const { generateHint, formatErrorMessage } = require("../src/services/openrouter");
 const { createClient } = require("redis");
 
@@ -501,11 +502,15 @@ module.exports = async (req, res) => {
 					}
 
 					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
-					await bot.sendMessage(chatId, `💡 *Подсказка:*\n\n${hint}`, {
-						parse_mode: "MarkdownV2",
-						reply_to_message_id: messageToReply,
-						disable_web_page_preview: true,
-					});
+					await bot.sendMessage(
+						chatId,
+						`💡 *Подсказка:*\n\n${BaseQuestionLoader.escapeMarkdownV2(hint)}`,
+						{
+							parse_mode: "MarkdownV2",
+							reply_to_message_id: messageToReply,
+							disable_web_page_preview: true,
+						}
+					);
 
 					try {
 						const answerKeyMatch = callbackQuery.message.reply_markup?.inline_keyboard?.[0]?.find(
