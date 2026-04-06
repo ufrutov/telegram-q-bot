@@ -527,7 +527,7 @@ module.exports = async (req, res) => {
 					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
 					await bot.sendMessage(
 						chatId,
-						`💡 *Подсказка:*\n\n${escapeMarkdownV2(hint)}`,
+						`💡 *Подсказка:*\n${escapeMarkdownV2(hint)}`,
 						{
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: messageToReply,
