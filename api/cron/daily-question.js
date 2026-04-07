@@ -1,5 +1,5 @@
 const TelegramBot = require("node-telegram-bot-api");
-const QuestionLoader = require("../src/lib/QuestionLoader/QuestionLoader");
+const QuestionLoader = require("../../src/lib/QuestionLoader/QuestionLoader");
 const { createClient } = require("redis");
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
