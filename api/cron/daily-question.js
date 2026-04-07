@@ -82,7 +82,7 @@ async function sendQuestionMessage(chatId, complexity = "random", questionId = u
 
 				if (redisClient) {
 					const answerPreview = questionData.answerPreview || [];
-					await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer: questionData.answer, answerPreview }));
+					await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
 					await redisClient.setEx(
 						hintKey,
 						3600 * 24,
@@ -99,6 +99,41 @@ async function sendQuestionMessage(chatId, complexity = "random", questionId = u
 				return { answerKey, questionMessageId: separate.message_id };
 			} catch (imgError) {
 				console.error("Error sending question media group:", imgError);
+				const questionMessage = await bot.sendMessage(chatId, question, {
+					parse_mode: "MarkdownV2",
+					disable_web_page_preview: true,
+					reply_markup: {
+						inline_keyboard: [
+							[
+								{
+									text: "📖 Показать ответ",
+									callback_data: JSON.stringify({ answerKey }),
+								},
+								{
+									text: "✨ Подсказка",
+									callback_data: JSON.stringify({ hintKey }),
+								},
+							],
+						],
+					},
+				});
+
+				if (redisClient) {
+					const answerPreview = questionData.answerPreview || [];
+					await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
+					await redisClient.setEx(
+						hintKey,
+						3600 * 24,
+						JSON.stringify({
+							question: questionData.question,
+							answer: questionData.answer,
+							description: questionData.description,
+							questionMessageId: questionMessage.message_id,
+						}),
+					);
+				}
+
+				return { answerKey, questionMessageId: questionMessage.message_id };
 			}
 		}
 
@@ -123,7 +158,7 @@ async function sendQuestionMessage(chatId, complexity = "random", questionId = u
 
 		if (redisClient) {
 			const answerPreview = questionData.answerPreview || [];
-			await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer: questionData.answer, answerPreview }));
+			await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
 			await redisClient.setEx(
 				hintKey,
 				3600 * 24,
