@@ -149,7 +149,7 @@ async function sendQuestionMessage(chatId, complexity = "random", questionId = u
 }
 
 module.exports = async (req, res) => {
-	if (req.method !== "POST") {
+	if (req.method !== "POST" && req.method !== "GET") {
 		return res.status(405).json({ error: "Method not allowed" });
 	}
 
@@ -169,7 +169,7 @@ module.exports = async (req, res) => {
 			await redisClient.connect();
 		}
 
-		const chatIds = targetChats.split(",").map((id) => id.trim()).filter((id) => /^\d+$/.test(id));
+		const chatIds = targetChats.split(",").map((id) => id.trim()).filter((id) => /^-?\d+$/.test(id));
 
 		if (chatIds.length === 0) {
 			return res.status(400).json({ error: "No target chats configured" });
