@@ -235,14 +235,14 @@ module.exports = async (req, res) => {
 							await bot.sendMediaGroup(chatId, media, { reply_to_message_id: messageToReply });
 						} catch (imgError) {
 							console.error("Error sending answer media group:", imgError);
-							await bot.sendMessage(chatId, escapeMarkdownV2(answer), {
+							await bot.sendMessage(chatId, answer, {
 								parse_mode: "MarkdownV2",
 								reply_to_message_id: messageToReply,
 								disable_web_page_preview: true,
 							});
 						}
 					} else {
-						await bot.sendMessage(chatId, escapeMarkdownV2(answer), {
+						await bot.sendMessage(chatId, answer, {
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: messageToReply,
 							disable_web_page_preview: true,
@@ -264,8 +264,10 @@ module.exports = async (req, res) => {
 						try {
 							await bot.deleteMessage(chatId, callbackQuery.message.message_id);
 						} catch (deleteError) {
-							console.error("Error deleting separated message after question with media group:",
-								deleteError);
+							console.error(
+								"Error deleting separated message after question with media group:",
+								deleteError,
+							);
 						}
 					}
 
@@ -304,12 +306,18 @@ module.exports = async (req, res) => {
 					}
 
 					const hintData = JSON.parse(hintDataStr);
-					const { question, answer, description, questionMessageId, questionPreview = [] } = hintData;
+					const {
+						question,
+						answer,
+						description,
+						questionMessageId,
+						questionPreview = [],
+					} = hintData;
 
 					// Remove hint button from keyboard (keep answer button)
 					try {
 						const answerKeyMatch = callbackQuery.message.reply_markup?.inline_keyboard?.[0]?.find(
-							(btn) => btn.text === "📖 Показать ответ"
+							(btn) => btn.text === "📖 Показать ответ",
 						);
 						const newKeyboard = answerKeyMatch
 							? { inline_keyboard: [[answerKeyMatch]] }
@@ -339,15 +347,11 @@ module.exports = async (req, res) => {
 					}
 
 					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
-					await bot.sendMessage(
-						chatId,
-						`💡 *Подсказка:*\n${escapeMarkdownV2(hint)}`,
-						{
-							parse_mode: "MarkdownV2",
-							reply_to_message_id: messageToReply,
-							disable_web_page_preview: true,
-						}
-					);
+					await bot.sendMessage(chatId, `💡 *Подсказка:*\n${escapeMarkdownV2(hint)}`, {
+						parse_mode: "MarkdownV2",
+						reply_to_message_id: messageToReply,
+						disable_web_page_preview: true,
+					});
 
 					// Delete hint data from Redis
 					if (redisClient) {

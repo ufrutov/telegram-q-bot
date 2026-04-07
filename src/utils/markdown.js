@@ -1,8 +1,7 @@
 /**
- * Escape special characters for MarkdownV2
- * @param {string} text - Text to escape
- * @returns {string} - Escaped text
+ * Markdown utilities for Telegram MarkdownV2 formatting
  */
+
 function escapeMarkdownV2(text) {
 	if (!text) return text;
 	// Preserve Markdown links [text](url) while escaping other special chars.
@@ -15,15 +14,33 @@ function escapeMarkdownV2(text) {
 		return `\u0000MDLINK${idx}\u0000`;
 	});
 
-	// Characters that need to be escaped in MarkdownV2 (keep '*' unescaped for bold formatting)
-	// Note: We keep '_' unescaped to preserve italic styling in user-generated content
-	const specialChars = /([`\[\]()#+\-.!|\\})({])/g;
-	replaced = replaced.replace(specialChars, "\\$1");
+	// Characters that need to be escaped in MarkdownV2
+	const specialChars = [
+		"_",
+		"[",
+		"]",
+		"(",
+		")",
+		"~",
+		"`",
+		">",
+		"#",
+		"+",
+		"-",
+		"=",
+		"|",
+		"{",
+		"}",
+		".",
+		"!",
+	];
 
-	// Restore Markdown links
-	placeholders.forEach((link, idx) => {
-		replaced = replaced.replace(`\u0000MDLINK${idx}\u0000`, link);
-	});
+	for (const char of specialChars) {
+		replaced = replaced.split(char).join("\\" + char);
+	}
+
+	// Restore original links
+	replaced = replaced.replace(/\u0000MDLINK(\d+)\u0000/g, (_, n) => placeholders[Number(n)]);
 
 	return replaced;
 }
