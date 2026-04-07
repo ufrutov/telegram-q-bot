@@ -122,6 +122,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 							answer: questionData.answer,
 							description: questionData.description,
 							questionMessageId: questionMessage.message_id,
+							questionPreview: questionData.questionPreview || [],
 						}),
 					);
 				}
@@ -164,6 +165,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 							answer: questionData.answer,
 							description: questionData.description,
 							questionMessageId: questionMessage.message_id,
+							questionPreview: questionData.questionPreview || [],
 						}),
 					);
 				}
@@ -202,6 +204,7 @@ async function sendQuestionMessage(chatId, complexity, questionId = undefined) {
 						answer: questionData.answer,
 						description: questionData.description,
 						questionMessageId: questionMessage.message_id,
+						questionPreview: questionData.questionPreview || [],
 					}),
 				);
 			}
@@ -491,7 +494,7 @@ module.exports = async (req, res) => {
 					}
 
 					const hintData = JSON.parse(hintDataStr);
-					const { question, answer, description, questionMessageId } = hintData;
+					const { question, answer, description, questionMessageId, questionPreview = [] } = hintData;
 
 					// Remove hint button immediately
 					try {
@@ -513,7 +516,7 @@ module.exports = async (req, res) => {
 					let hint;
 					try {
 						const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...");
-						hint = await generateHint(question, answer, description);
+						hint = await generateHint(question, answer, description, questionPreview);
 						try {
 							await bot.deleteMessage(chatId, loadingMsg.message_id);
 						} catch (dErr) {

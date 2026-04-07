@@ -45,12 +45,39 @@ OUTPUT FORMAT:
 - DO NOT include words like "ответ", "ответ:", "это", or any hint to the answer
 `.trim();
 
-async function generateHint(question, correctAnswer, description) {
-	let userContent = `Question: ${question}\nCorrect Answer: ${correctAnswer}`;
-	if (description) {
-		userContent += `\nDescription: ${description}`;
+async function generateHint(question, correctAnswer, description, questionPreview = []) {
+	let userContent = [];
+	
+	if (questionPreview && questionPreview.length > 0) {
+		userContent.push({
+			type: "text",
+			text: `Question image(s):`,
+		});
+		for (const imageUrl of questionPreview) {
+			userContent.push({
+				type: "image_url",
+				image_url: { url: imageUrl },
+			});
+		}
 	}
-	userContent += `\n\nWrite a helpful hint in Russian language. Important: Do NOT include the answer in your hint — give only a logical clue.`;
+	
+	userContent.push({
+		type: "text",
+		text: `Question: ${question}\nCorrect Answer: ${correctAnswer}`,
+	});
+	
+	if (description) {
+		userContent.push({
+			type: "text",
+			text: `Description: ${description}`,
+		});
+	}
+	
+	userContent.push({
+		type: "text",
+		text: `Write a helpful hint in Russian language. Important: Do NOT include the answer in your hint — give only a logical clue.`,
+	});
+
 	const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
 		method: "POST",
 		headers: {
