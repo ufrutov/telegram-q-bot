@@ -1,6 +1,6 @@
 {
   "name": "telegram-q-bot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Telegram Question Bot - A Telegram bot deployed on Vercel",
   "main": "api/webhook.js",
   "scripts": {
