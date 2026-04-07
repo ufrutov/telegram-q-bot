@@ -1,12 +1,23 @@
-const TelegramBot = require("node-telegram-bot-api");
-const QuestionLoader = require("../../src/lib/QuestionLoader/QuestionLoader");
-const { createClient } = require("redis");
+/**
+ * Daily Question Cron Job
+ * Sends a random question to configured Telegram chats on a schedule
+ * Configured in vercel.json to run daily at 12:00 GMT+3
+ */
 
+const TelegramBot = require("node-telegram-bot-api");
+const { createClient } = require("redis");
+const { sendQuestionMessage } = require("../../src/services/questionSender");
+
+/** Bot token from environment variables */
 const token = process.env.TELEGRAM_BOT_TOKEN;
+
+/** Optional secret for manual testing (set via CRON_SECRET env var) */
 const cronSecret = process.env.CRON_SECRET;
-const target = "gotquestions.online";
+
+/** Comma-separated list of chat IDs to send questions to */
 const targetChats = process.env.CRON_TARGET_CHATS || "";
 
+// Initialize Redis client
 let redisClient;
 if (process.env.REDIS_URL) {
 	redisClient = createClient({
@@ -15,6 +26,11 @@ if (process.env.REDIS_URL) {
 	redisClient.on("error", (err) => console.error("Redis Client Error", err));
 }
 
+/**
+ * Validates Telegram bot token format
+ * @param {string} botToken - Token to validate
+ * @returns {boolean} - True if valid format
+ */
 function isValidTokenFormat(botToken) {
 	if (!botToken || typeof botToken !== "string") {
 		return false;
@@ -23,176 +39,30 @@ function isValidTokenFormat(botToken) {
 	return tokenPattern.test(botToken);
 }
 
+// Create bot instance
 let bot;
 if (token && isValidTokenFormat(token)) {
 	bot = new TelegramBot(token);
 }
 
-async function sendQuestionMessage(chatId, complexity = "random", questionId = undefined) {
-	try {
-		const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
-
-		const questionLoader = QuestionLoader(target, complexity);
-
-		const questionData = await questionLoader.loadQuestion(questionId);
-		const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
-
-		console.log(`[${chatId}] ${complexity} question: ${questionData.link}`);
-
-		try {
-			await bot.deleteMessage(chatId, loadingMsg.message_id);
-		} catch (dErr) {
-			// ignore
-		}
-
-		const answerKey = `answer:${chatId}:${questionData.id}`;
-		const hintKey = `hint:${chatId}:${questionData.id}`;
-
-		if (questionData.questionPreview && questionData.questionPreview.length > 0) {
-			const media = questionData.questionPreview.map((url, index) => ({
-				type: "photo",
-				media: url,
-				...(index === 0 && {
-					caption: question,
-					parse_mode: "MarkdownV2",
-				}),
-			}));
-
-			try {
-				const messages = await bot.sendMediaGroup(chatId, media);
-				const questionMessage = messages[0];
-
-				const separate = await bot.sendMessage(chatId, "Ответ на вопрос", {
-					reply_to_message_id: questionMessage.message_id,
-					reply_markup: {
-						inline_keyboard: [
-							[
-								{
-									text: "📖 Показать ответ",
-									callback_data: JSON.stringify({ answerKey }),
-								},
-								{
-									text: "✨ Подсказка",
-									callback_data: JSON.stringify({ hintKey }),
-								},
-							],
-						],
-					},
-				});
-
-				if (redisClient) {
-					const answerPreview = questionData.answerPreview || [];
-					await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
-					await redisClient.setEx(
-						hintKey,
-						3600 * 24,
-						JSON.stringify({
-							question: questionData.question,
-							answer: questionData.answer,
-							description: questionData.description,
-							questionMessageId: questionMessage.message_id,
-							questionPreview: questionData.questionPreview || [],
-						}),
-					);
-				}
-
-				return { answerKey, questionMessageId: separate.message_id };
-			} catch (imgError) {
-				console.error("Error sending question media group:", imgError);
-				const questionMessage = await bot.sendMessage(chatId, question, {
-					parse_mode: "MarkdownV2",
-					disable_web_page_preview: true,
-					reply_markup: {
-						inline_keyboard: [
-							[
-								{
-									text: "📖 Показать ответ",
-									callback_data: JSON.stringify({ answerKey }),
-								},
-								{
-									text: "✨ Подсказка",
-									callback_data: JSON.stringify({ hintKey }),
-								},
-							],
-						],
-					},
-				});
-
-				if (redisClient) {
-					const answerPreview = questionData.answerPreview || [];
-					await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
-					await redisClient.setEx(
-						hintKey,
-						3600 * 24,
-						JSON.stringify({
-							question: questionData.question,
-							answer: questionData.answer,
-							description: questionData.description,
-							questionMessageId: questionMessage.message_id,
-						}),
-					);
-				}
-
-				return { answerKey, questionMessageId: questionMessage.message_id };
-			}
-		}
-
-		const questionMessage = await bot.sendMessage(chatId, question, {
-			parse_mode: "MarkdownV2",
-			disable_web_page_preview: true,
-			reply_markup: {
-				inline_keyboard: [
-					[
-						{
-							text: "📖 Показать ответ",
-							callback_data: JSON.stringify({ answerKey }),
-						},
-						{
-							text: "✨ Подсказка",
-							callback_data: JSON.stringify({ hintKey }),
-						},
-					],
-				],
-			},
-		});
-
-		if (redisClient) {
-			const answerPreview = questionData.answerPreview || [];
-			await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
-			await redisClient.setEx(
-				hintKey,
-				3600 * 24,
-				JSON.stringify({
-					question: questionData.question,
-					answer: questionData.answer,
-					description: questionData.description,
-					questionMessageId: questionMessage.message_id,
-				}),
-			);
-		}
-
-		return { answerKey, questionMessageId: questionMessage.message_id };
-	} catch (error) {
-		console.error(`Error sending question to ${chatId}:`, error);
-		try {
-			await bot.sendMessage(chatId, "❌ Произошла ошибка при загрузке вопроса.");
-		} catch (e) {
-			// ignore
-		}
-		return null;
-	}
-}
-
+/**
+ * Cron job handler - sends questions to all configured chats
+ * @param {import('http').IncomingMessage} req - HTTP request
+ * @param {import('http').ServerResponse} res - HTTP response
+ */
 module.exports = async (req, res) => {
+	// Accept POST (from Vercel cron) and GET (for health checks)
 	if (req.method !== "POST" && req.method !== "GET") {
 		return res.status(405).json({ error: "Method not allowed" });
 	}
 
+	// Check bot configuration
 	if (!token || !bot) {
 		console.error("TELEGRAM_BOT_TOKEN is not configured");
 		return res.status(500).json({ error: "Bot not configured" });
 	}
 
+	// Verify request is from Vercel cron or has valid secret
 	if (req.headers["x-vercel-cron"] !== "true") {
 		if (cronSecret && req.headers["x-cron-secret"] !== cronSecret) {
 			return res.status(403).json({ error: "Unauthorized" });
@@ -200,10 +70,13 @@ module.exports = async (req, res) => {
 	}
 
 	try {
+		// Connect Redis if configured
 		if (redisClient && !redisClient.isOpen) {
 			await redisClient.connect();
 		}
 
+		// Parse chat IDs from environment variable
+		// Accepts both positive (users) and negative (groups) IDs
 		const chatIds = targetChats.split(",").map((id) => id.trim()).filter((id) => /^-?\d+$/.test(id));
 
 		if (chatIds.length === 0) {
@@ -215,9 +88,10 @@ module.exports = async (req, res) => {
 		let successCount = 0;
 		let failCount = 0;
 
+		// Send question to each configured chat
 		for (const chatId of chatIds) {
 			try {
-				await sendQuestionMessage(chatId, "random");
+				await sendQuestionMessage(bot, redisClient, chatId, "random");
 				successCount++;
 			} catch (err) {
 				console.error(`Failed to send to ${chatId}:`, err.message);
