@@ -13,6 +13,8 @@ jobs:
   bump-version:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'bump version')"
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,9 +30,22 @@ jobs:
 
       - name: Bump version
         run: |
+          echo "=== Debug Info ==="
+          git remote -v
+          whoami
+          echo "=== Current branch ==="
+          git branch
+          echo "=== Git config ==="
+          git config --list
+          echo "=== Current version ==="
+          cat package.json | grep version
           npm version patch --no-git-tag-version
+          echo "=== New version ==="
+          cat package.json | grep version
+          VERSION=$(node -p 'require("./package.json").version')
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add package.json
-          git diff --staged --quiet || git commit -m "chore: bump version to $(node -p 'require(\"./package.json\").version')"
+          git diff --staged --quiet || git commit -m "chore: bump version to ${VERSION}"
+          git status
           git push
