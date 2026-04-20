@@ -150,24 +150,26 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 		// Add complexity percent to description
 		if (questionData.complexity && questionData.complexity.length > 0) {
-			const questionComplexity = (
-				questionData.complexity.reduce((a, b) => a + b) / questionData.complexity.length
-			).toFixed(1);
-
-			let complexityText = `[↗️](${this.baseUrl}/question/${questionData.id}) *${questionComplexity}%* верных ответов`;
+			let complexityText = `[↗️](${this.baseUrl}/question/${questionData.id})`;
 
 			// Add pack complexity if available
 			if (Array.isArray(packData?.trueDl) && packData.trueDl.length > 0) {
 				const packComplexity = (
 					packData.trueDl.reduce((a, b) => a + b) / packData.trueDl.length
 				).toFixed(1);
-				complexityText += `, сложность: *${packComplexity}* (${this.complexity})`;
+				complexityText += ` Cложность *${packComplexity}* (${this.complexity})`;
 			}
+
+			const questionComplexity = (
+				questionData.complexity.reduce((a, b) => a + b) / questionData.complexity.length
+			).toFixed(1);
+
+			complexityText += `, *${questionComplexity}%* верных ответов`;
 
 			// Add pack info if available
 			if (packData?.title) {
 				const escapedTitle = escapeMarkdownV2(packData.title);
-				complexityText += `\nПакет: [*${escapedTitle}*](${this.baseUrl}/pack/${packData.id}/) • ${formatDate(packData.pubDate)}`;
+				complexityText += `\n[*${escapedTitle}*](${this.baseUrl}/pack/${packData.id}/) • ${formatDate(packData.pubDate)}`;
 			}
 
 			descriptionParts.push(complexityText);
