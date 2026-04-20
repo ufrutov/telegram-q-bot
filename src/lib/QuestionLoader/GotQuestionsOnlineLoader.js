@@ -157,14 +157,14 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				const packComplexity = (
 					packData.trueDl.reduce((a, b) => a + b) / packData.trueDl.length
 				).toFixed(1);
-				complexityText += ` Cложность *${packComplexity}* (${this.complexity})`;
+				complexityText += ` Cложность *${packComplexity}*`;
 			}
 
 			const questionComplexity = (
 				questionData.complexity.reduce((a, b) => a + b) / questionData.complexity.length
 			).toFixed(1);
 
-			complexityText += `, *${questionComplexity}%* верных ответов`;
+			complexityText += ` • *${questionComplexity}%* верных ответов`;
 
 			// Add pack info if available
 			if (packData?.title) {
