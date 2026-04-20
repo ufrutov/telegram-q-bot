@@ -16,6 +16,7 @@ const MONTHS_RU = [
 	"ноября",
 	"декабря",
 ];
+const HAS_TIMEZONE_REGEX = /T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})$/;
 
 /**
  * Format date string to Russian format
@@ -30,12 +31,10 @@ function formatDate(dateString) {
 	try {
 		const normalizedDateString = String(dateString)
 			.trim()
-			.replace(" ", "T")
+			.replace(/\s+/g, "T")
 			.replace(/\.(\d{1,6})/, (_, fractional) => `.${fractional.slice(0, 3).padEnd(3, "0")}`);
 
-		const dateWithTimezone = /T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})$/.test(
-			normalizedDateString
-		)
+		const dateWithTimezone = HAS_TIMEZONE_REGEX.test(normalizedDateString)
 			? normalizedDateString
 			: `${normalizedDateString}Z`;
 		const date = new Date(dateWithTimezone);
