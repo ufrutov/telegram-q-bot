@@ -29,3 +29,4 @@ Thumbs.db
 *.swp
 *.swo
 .env*.local
+src/lib/QuestionLoader/test/mock/

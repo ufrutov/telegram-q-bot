@@ -1,4 +1,6 @@
 const BaseQuestionLoader = require("./BaseQuestionLoader");
+const { formatDate } = require("../../utils/date");
+const { escapeMarkdownV2 } = require("../../utils/markdown");
 
 /**
  * TrueDL complexity ranges mapping
@@ -52,11 +54,46 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	}
 
 	/**
+	 * Load Questions Pack data from API
+	 * @param {number|string} packId - Pack ID to load
+	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, and trueDl fields, or null if not found
+	 */
+	async loadPackData(packId) {
+		if (!packId) {
+			return null;
+		}
+
+		try {
+			const url = `${this.baseUrl}/api/pack/${packId}/`;
+			const response = await fetch(url);
+
+			if (!response.ok) {
+				throw new Error(`HTTP error! status: ${response.status}`);
+			}
+
+			const packData = await response.json();
+
+			// Return only the required fields
+			return {
+				id: packData.id,
+				pubDate: packData.pubDate,
+				title: packData.title,
+				trueDl: packData.trueDl,
+			};
+		} catch (error) {
+			console.warn(`Failed to load pack ${packId}: ${error.message}`);
+			return null;
+		}
+	}
+
+	/**
 	 * Parse question data from API response
 	 * @param {Object} questionData - Raw question object from API
+	 * @param {string} questionLink - Link to the question
+	 * @param {Object} [packData] - Optional pack data object
 	 * @returns {Object} - Parsed question object
 	 */
-	parseQuestionData(questionData, questionLink) {
+	parseQuestionData(questionData, questionLink, packData = null) {
 		const result = {
 			id: questionData.id,
 			question: null,
@@ -113,12 +150,29 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 		// Add complexity percent to description
 		if (questionData.complexity && questionData.complexity.length > 0) {
-			const { complexity } = questionData;
-			const value = (complexity.reduce((a, b) => a + b) / complexity.length).toFixed(1);
+			let complexityText = `[↗️](${this.baseUrl}/question/${questionData.id})`;
 
-			descriptionParts.push(
-				`[↗️](${this.baseUrl}/question/${questionData.id}) *${value}%* верных ответов, сложность: *${this.complexity}*`
-			);
+			// Add pack complexity if available
+			if (Array.isArray(packData?.trueDl) && packData.trueDl.length > 0) {
+				const packComplexity = (
+					packData.trueDl.reduce((a, b) => a + b) / packData.trueDl.length
+				).toFixed(1);
+				complexityText += ` Cложность *${packComplexity}*`;
+			}
+
+			const questionComplexity = (
+				questionData.complexity.reduce((a, b) => a + b) / questionData.complexity.length
+			).toFixed(1);
+
+			complexityText += ` • *${questionComplexity}%* верных ответов`;
+
+			// Add pack info if available
+			if (packData?.title) {
+				const escapedTitle = escapeMarkdownV2(packData.title);
+				complexityText += `\n[*${escapedTitle}*](${this.baseUrl}/pack/${packData.id}/) • ${formatDate(packData.pubDate)}`;
+			}
+
+			descriptionParts.push(complexityText);
 		}
 
 		if (descriptionParts.length > 0) {
@@ -172,7 +226,14 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				}
 				const questionData = await response.json();
 				const questionLink = `${this.baseUrl}/question/${questionData.id}`;
-				return this.parseQuestionData(questionData, questionLink);
+
+				// Load pack data if packId is available
+				let packData = null;
+				if (questionData.packId) {
+					packData = await this.loadPackData(questionData.packId);
+				}
+
+				return this.parseQuestionData(questionData, questionLink, packData);
 			} catch (error) {
 				throw new Error(`Failed to load question ${questionId}: ${error.message}`);
 			}
@@ -202,8 +263,14 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				const questionData = data.questions[randomIndex];
 				const questionLink = `${this.baseUrl}/question/${questionData.id}`;
 
+				// Load pack data if packId is available
+				let packData = null;
+				if (questionData.packId) {
+					packData = await this.loadPackData(questionData.packId);
+				}
+
 				// Parse and return the question
-				return this.parseQuestionData(questionData, questionLink);
+				return this.parseQuestionData(questionData, questionLink, packData);
 			} catch (error) {
 				lastError = error;
 				if (attempt < maxAttempts) {
