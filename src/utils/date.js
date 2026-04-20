@@ -28,7 +28,17 @@ function formatDate(dateString) {
 	}
 
 	try {
-		const date = new Date(dateString);
+		const normalizedDateString = String(dateString)
+			.trim()
+			.replace(" ", "T")
+			.replace(/\.(\d{1,6})/, (_, fractional) => `.${fractional.slice(0, 3).padEnd(3, "0")}`);
+
+		const dateWithTimezone = /T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})$/.test(
+			normalizedDateString
+		)
+			? normalizedDateString
+			: `${normalizedDateString}Z`;
+		const date = new Date(dateWithTimezone);
 
 		if (isNaN(date.getTime())) {
 			return "";
