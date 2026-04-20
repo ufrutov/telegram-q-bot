@@ -1,5 +1,6 @@
 const BaseQuestionLoader = require("./BaseQuestionLoader");
 const { formatDate } = require("../../utils/date");
+const { escapeMarkdownV2 } = require("../../utils/markdown");
 
 /**
  * TrueDL complexity ranges mapping
@@ -156,7 +157,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			let complexityText = `[↗️](${this.baseUrl}/question/${questionData.id}) *${questionComplexity}%* верных ответов`;
 
 			// Add pack complexity if available
-			if (packData?.trueDl) {
+			if (Array.isArray(packData?.trueDl) && packData.trueDl.length > 0) {
 				const packComplexity = (
 					packData.trueDl.reduce((a, b) => a + b) / packData.trueDl.length
 				).toFixed(1);
@@ -165,7 +166,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 			// Add pack info if available
 			if (packData?.title) {
-				complexityText += `\nПакет: [*${packData.title}*](${this.baseUrl}/pack/${packData.id}/) • ${formatDate(packData.pubDate)}`;
+				const escapedTitle = escapeMarkdownV2(packData.title);
+				complexityText += `\nПакет: [*${escapedTitle}*](${this.baseUrl}/pack/${packData.id}/) • ${formatDate(packData.pubDate)}`;
 			}
 
 			descriptionParts.push(complexityText);
