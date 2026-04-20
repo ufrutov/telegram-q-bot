@@ -16,7 +16,7 @@ const MONTHS_RU = [
 	"ноября",
 	"декабря",
 ];
-const HAS_TIMEZONE_REGEX = /T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})$/;
+const ISO_TIMEZONE_REGEX = /T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})$/;
 
 /**
  * Format date string to Russian format
@@ -32,12 +32,13 @@ function formatDate(dateString) {
 		const normalizedDateString = String(dateString)
 			.trim()
 			.replace(/\s+/g, "T")
+			// gotquestions API can return microseconds; JS Date supports milliseconds only
 			.replace(/\.(\d{1,6})/, (_, fractional) => `.${fractional.slice(0, 3).padEnd(3, "0")}`);
 
-		const dateWithTimezone = HAS_TIMEZONE_REGEX.test(normalizedDateString)
+		const normalizedDateStringWithTimezone = ISO_TIMEZONE_REGEX.test(normalizedDateString)
 			? normalizedDateString
 			: `${normalizedDateString}Z`;
-		const date = new Date(dateWithTimezone);
+		const date = new Date(normalizedDateStringWithTimezone);
 
 		if (isNaN(date.getTime())) {
 			return "";
