@@ -16,7 +16,6 @@ const MONTHS_RU = [
 	"ноября",
 	"декабря",
 ];
-const ISO_TIMEZONE_REGEX = /T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})$/;
 
 /**
  * Format date string to Russian format
@@ -29,26 +28,22 @@ function formatDate(dateString) {
 	}
 
 	try {
-		const normalizedDateString = String(dateString)
-			.trim()
-			.replace(/\s+/g, "T")
-			// gotquestions API can return microseconds; JS Date supports milliseconds only
-			.replace(/\.(\d{1,6})/, (_, fractional) => `.${fractional.slice(0, 3).padEnd(3, "0")}`);
-
-		const normalizedDateStringWithTimezone = ISO_TIMEZONE_REGEX.test(normalizedDateString)
-			? normalizedDateString
-			: `${normalizedDateString}Z`;
-		const date = new Date(normalizedDateStringWithTimezone);
-
-		if (isNaN(date.getTime())) {
+		const normalizedDateString = String(dateString).trim();
+		const dateMatch = normalizedDateString.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+		if (!dateMatch) {
 			return "";
 		}
 
-		const day = date.getDate();
-		const month = MONTHS_RU[date.getMonth()];
-		const year = date.getFullYear();
+		const year = Number(dateMatch[1]);
+		const month = Number(dateMatch[2]);
+		const day = Number(dateMatch[3]);
+		const maxDayInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
-		return `${day} ${month} ${year}`;
+		if (month < 1 || month > 12 || day < 1 || day > maxDayInMonth) {
+			return "";
+		}
+
+		return `${day} ${MONTHS_RU[month - 1]} ${year}`;
 	} catch (error) {
 		console.warn(`Failed to format date ${dateString}: ${error.message}`);
 		return "";
