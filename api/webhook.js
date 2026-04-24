@@ -179,6 +179,13 @@ module.exports = async (req, res) => {
 
 			// Handle "Show Answer" button click
 			if (parsed && parsed.answerKey) {
+				// acknowledge callback so UI doesn't spin
+				try {
+					await bot.answerCallbackQuery(callbackQuery.id);
+				} catch (ansErr) {
+					// ignore
+				}
+
 				const answerKey = parsed.answerKey;
 
 				if (!answerKey) {
@@ -275,11 +282,122 @@ module.exports = async (req, res) => {
 					if (redisClient) {
 						await redisClient.del(answerKey);
 					}
+
+					// If this question belonged to a pack, offer other pack questions
+					if (parsed.packKey && redisClient) {
+						try {
+							const packStr = await redisClient.get(parsed.packKey);
+							if (packStr) {
+								const packArr = JSON.parse(packStr);
+								if (Array.isArray(packArr) && packArr.length > 0) {
+									// Send a small message with a button to get another question from the pack
+									await bot.sendMessage(chatId, `Другой вопрос из пакета (${packArr.length})`, {
+										reply_to_message_id: messageToReply,
+										reply_markup: {
+											inline_keyboard: [
+												[
+													{
+														text: `Другой вопрос из пакета (${packArr.length})`,
+														callback_data: JSON.stringify({ packKey: parsed.packKey }),
+													},
+												],
+											],
+										},
+									});
+								}
+							}
+						} catch (packErr) {
+							console.error("Error offering pack button:", packErr);
+						}
+					}
+
 					return res.status(200).json({ ok: true });
 				} catch (error) {
 					console.error("Error handling callback query (answer):", error);
 					await bot.answerCallbackQuery(callbackQuery.id, {
 						text: "❌ Ошибка при загрузке ответа",
+						show_alert: true,
+					});
+					return res.status(200).json({ ok: true });
+				}
+			}
+
+			// Handle "Pack: another question" button click
+			if (parsed && parsed.packKey && !parsed.answerKey && !parsed.hintKey) {
+				const pKey = parsed.packKey;
+				if (!pKey) {
+					return res.status(200).json({ ok: true });
+				}
+
+				try {
+					await bot.answerCallbackQuery(callbackQuery.id);
+
+					const arrStr = redisClient ? await redisClient.get(pKey) : null;
+					if (!arrStr) {
+						await bot.answerCallbackQuery(callbackQuery.id, {
+							text: "📚 Пакет пуст",
+							show_alert: false,
+						});
+						return res.status(200).json({ ok: true });
+					}
+
+					let arr = JSON.parse(arrStr || "[]");
+					if (!Array.isArray(arr) || arr.length === 0) {
+						if (redisClient) await redisClient.del(pKey);
+						await bot.answerCallbackQuery(callbackQuery.id, {
+							text: "📚 Пакет пуст",
+							show_alert: false,
+						});
+						return res.status(200).json({ ok: true });
+					}
+
+					// Pick random question id from pack
+					const idx = Math.floor(Math.random() * arr.length);
+					const pickedId = arr.splice(idx, 1)[0];
+
+					// Persist updated pack array or delete if empty
+					if (redisClient) {
+						if (arr.length === 0) {
+							await redisClient.del(pKey);
+						} else {
+							await redisClient.setEx(pKey, 3600 * 24, JSON.stringify(arr));
+						}
+					}
+
+					// Optionally remove or update the original pack-button message
+					try {
+						if (arr.length === 0) {
+							await bot.editMessageReplyMarkup(
+								{ inline_keyboard: [] },
+								{ chat_id: chatId, message_id: callbackQuery.message.message_id },
+							);
+						} else {
+							await bot.editMessageReplyMarkup(
+								{
+									inline_keyboard: [
+										[
+											{
+												text: `📚 Другой вопрос из пакета (${arr.length})`,
+												callback_data: JSON.stringify({ packKey: pKey }),
+											},
+										],
+									],
+								},
+								{ chat_id: chatId, message_id: callbackQuery.message.message_id },
+							);
+						}
+					} catch (editErr) {
+						// ignore
+					}
+
+					// Send the selected question
+					await sendQuestionMessage(bot, redisClient, chatId, "random", String(pickedId));
+
+					return res.status(200).json({ ok: true });
+				} catch (err) {
+					console.error("Error handling pack callback:", err);
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "❌ Ошибка при обработке пакета",
 						show_alert: true,
 					});
 					return res.status(200).json({ ok: true });

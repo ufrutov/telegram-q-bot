@@ -56,9 +56,10 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	/**
 	 * Load Questions Pack data from API
 	 * @param {number|string} packId - Pack ID to load
-	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, and trueDl fields, or null if not found
+	 * @param {number|string} [currentQuestionId] - Optional question id to exclude from the returned `questions` list
+	 * @returns {Promise<Object|null>} - Pack data object with `id`, `pubDate`, `title`, `trueDl` and `questions` (array of question IDs) fields, or null if not found
 	 */
-	async loadPackData(packId) {
+	async loadPackData(packId, currentQuestionId) {
 		if (!packId) {
 			return null;
 		}
@@ -73,12 +74,35 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 			const packData = await response.json();
 
+			// Collect all question IDs from packData.tours (flattened and deduplicated)
+			const questions = [];
+			if (Array.isArray(packData.tours)) {
+				for (const tour of packData.tours) {
+					if (Array.isArray(tour.questions)) {
+						for (const q of tour.questions) {
+							if (q && typeof q.id !== "undefined") {
+								// Exclude the currently requested question ID if provided
+								if (typeof currentQuestionId !== "undefined" && currentQuestionId !== null) {
+									if (String(q.id) === String(currentQuestionId)) {
+										continue;
+									}
+								}
+								questions.push(q.id);
+							}
+						}
+					}
+				}
+			}
+
+			const uniqueQuestions = Array.from(new Set(questions));
+
 			// Return only the required fields
 			return {
 				id: packData.id,
 				pubDate: packData.pubDate,
 				title: packData.title,
 				trueDl: packData.trueDl,
+				questions: uniqueQuestions,
 			};
 		} catch (error) {
 			console.warn(`Failed to load pack ${packId}: ${error.message}`);
@@ -90,8 +114,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	 * Parse question data from API response
 	 * @param {Object} questionData - Raw question object from API
 	 * @param {string} questionLink - Link to the question
-	 * @param {Object} [packData] - Optional pack data object
-	 * @returns {Object} - Parsed question object
+	 * @param {Object} [packData] - Optional pack data object (may include `questions` array)
+	 * @returns {Object} - Parsed question object. If `packData.questions` is present, the result will include a `packQuestions` field with related question IDs.
 	 */
 	parseQuestionData(questionData, questionLink, packData = null) {
 		const result = {
@@ -103,6 +127,11 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			answerPreview: [],
 			link: questionLink,
 		};
+
+		// Include pack question IDs if pack data was provided
+		if (Array.isArray(packData?.questions) && packData.questions.length > 0) {
+			result.packQuestions = packData.questions;
+		}
 
 		// Parse question text and preview
 		if (questionData.text) {
@@ -209,8 +238,10 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	 * Load a question from gotquestions.online
 	 * If `questionId` is provided, loads that specific question directly.
 	 * Otherwise loads a random question from the search API.
+	 * When pack data is fetched, the loader passes the current `questionId` to `loadPackData` so
+	 * the returned `questions` list excludes the currently requested question.
 	 * @param {number|string} [questionId] - Optional question id to load directly
-	 * @returns {Promise<Object>} - Question object with question, answer, description, questionPreview, and answerPreview fields
+	 * @returns {Promise<Object>} - Question object with `question`, `answer`, `description`, `questionPreview`, `answerPreview` and optionally `packQuestions` fields
 	 */
 	async loadQuestion(questionId = undefined) {
 		const maxAttempts = 3;
@@ -230,7 +261,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				// Load pack data if packId is available
 				let packData = null;
 				if (questionData.packId) {
-					packData = await this.loadPackData(questionData.packId);
+					packData = await this.loadPackData(questionData.packId, questionId);
 				}
 
 				return this.parseQuestionData(questionData, questionLink, packData);
@@ -266,7 +297,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				// Load pack data if packId is available
 				let packData = null;
 				if (questionData.packId) {
-					packData = await this.loadPackData(questionData.packId);
+					packData = await this.loadPackData(questionData.packId, questionData.id);
 				}
 
 				// Parse and return the question

@@ -18,14 +18,20 @@ const target = "gotquestions.online";
  * @param {string} [questionId] - Optional specific question ID
  * @returns {Promise<{answerKey: string, questionMessageId: number}>}
  */
-async function sendQuestionMessage(bot, redisClient, chatId, complexity = "random", questionId = undefined) {
+async function sendQuestionMessage(
+	bot,
+	redisClient,
+	chatId,
+	complexity = "random",
+	questionId = undefined,
+) {
 	// Send loading message
 	const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
 
 	// Load question from the question service
 	const questionLoader = QuestionLoader(target, complexity);
 	const questionData = await questionLoader.loadQuestion(questionId);
-	
+
 	// Format question and answer for Telegram (MarkdownV2)
 	const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
 
@@ -41,6 +47,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 	// Generate Redis keys for answer and hint storage
 	const answerKey = `answer:${chatId}:${questionData.id}`;
 	const hintKey = `hint:${chatId}:${questionData.id}`;
+	const packKey = `pack:${chatId}:${questionData.id}`;
 
 	// If question has preview images, send as media group
 	if (questionData.questionPreview && questionData.questionPreview.length > 0) {
@@ -67,7 +74,13 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 						[
 							{
 								text: "📖 Показать ответ",
-								callback_data: JSON.stringify({ answerKey }),
+								callback_data: JSON.stringify({
+									answerKey,
+									packKey:
+										questionData.packQuestions && questionData.packQuestions.length
+											? packKey
+											: undefined,
+								}),
 							},
 							{
 								text: "✨ Подсказка",
@@ -93,6 +106,15 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 						questionPreview: questionData.questionPreview || [],
 					}),
 				);
+
+				// Store pack question IDs for pack flow (24h TTL)
+				if (Array.isArray(questionData.packQuestions) && questionData.packQuestions.length > 0) {
+					await redisClient.setEx(
+						packKey,
+						3600 * 24,
+						JSON.stringify(questionData.packQuestions.map(String)),
+					);
+				}
 			}
 
 			return { answerKey, questionMessageId: separate.message_id };
@@ -111,7 +133,13 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 				[
 					{
 						text: "📖 Показать ответ",
-						callback_data: JSON.stringify({ answerKey }),
+						callback_data: JSON.stringify({
+							answerKey,
+							packKey:
+								questionData.packQuestions && questionData.packQuestions.length
+									? packKey
+									: undefined,
+						}),
 					},
 					{
 						text: "✨ Подсказка",
