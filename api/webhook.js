@@ -150,6 +150,24 @@ module.exports = async (req, res) => {
 				parsed = null;
 			}
 
+			// Backwards compatibility: if payload uses { action, q } form, reconstruct older keys
+			if (parsed && parsed.action && parsed.q) {
+				const qid = String(parsed.q);
+				if (parsed.action === "answer") {
+					parsed.answerKey = `answer:${callbackQuery.message.chat.id}:${qid}`;
+					parsed.hintKey = `hint:${callbackQuery.message.chat.id}:${qid}`;
+					parsed.packKey = `pack:${callbackQuery.message.chat.id}:${qid}`;
+				}
+				if (parsed.action === "hint") {
+					parsed.hintKey = `hint:${callbackQuery.message.chat.id}:${qid}`;
+					parsed.answerKey = `answer:${callbackQuery.message.chat.id}:${qid}`;
+					parsed.packKey = `pack:${callbackQuery.message.chat.id}:${qid}`;
+				}
+				if (parsed.action === "pack") {
+					parsed.packKey = `pack:${callbackQuery.message.chat.id}:${qid}`;
+				}
+			}
+
 			if (!chatId) {
 				return res.status(200).json({ ok: true });
 			}
@@ -298,7 +316,10 @@ module.exports = async (req, res) => {
 												[
 													{
 														text: `Другой вопрос из пакета (${packArr.length})`,
-														callback_data: JSON.stringify({ packKey: parsed.packKey }),
+														callback_data: JSON.stringify({
+															action: "pack",
+															q: String(questionId),
+														}),
 													},
 												],
 											],

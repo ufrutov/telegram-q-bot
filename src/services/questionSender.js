@@ -2,14 +2,14 @@
  * Question Sender Service
  * Shared logic for sending questions to Telegram chats
  * Used by both webhook and cron endpoints
- */
-
-const QuestionLoader = require("../lib/QuestionLoader/QuestionLoader");
-
-/** Default target questions service */
-const target = "gotquestions.online";
-
-/**
+							{
+								text: "📖 Показать ответ",
+								callback_data: JSON.stringify({ action: "answer", q: String(questionData.id) }),
+							},
+							{
+								text: "✨ Подсказка",
+								callback_data: JSON.stringify({ action: "hint", q: String(questionData.id) }),
+							},
  * Sends a question message to a Telegram chat
  * @param {TelegramBot} bot - Telegram bot instance
  * @param {RedisClient} redisClient - Redis client for storing answer/hint data
@@ -74,17 +74,11 @@ async function sendQuestionMessage(
 						[
 							{
 								text: "📖 Показать ответ",
-								callback_data: JSON.stringify({
-									answerKey,
-									packKey:
-										questionData.packQuestions && questionData.packQuestions.length
-											? packKey
-											: undefined,
-								}),
+								callback_data: JSON.stringify({ action: "answer", q: String(questionData.id) }),
 							},
 							{
 								text: "✨ Подсказка",
-								callback_data: JSON.stringify({ hintKey }),
+								callback_data: JSON.stringify({ action: "hint", q: String(questionData.id) }),
 							},
 						],
 					],
