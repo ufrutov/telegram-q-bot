@@ -15,7 +15,12 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 /** Target questions service domain */
 const target = "gotquestions.online";
 
-// Initialize Redis client
+/**
+ * Redis client for ephemeral answer/hint storage.
+ * Initialised only when REDIS_URL is set — otherwise answer/hint buttons
+ * will show "time expired" fallback messages with a link to the question.
+ * @type {import('redis').RedisClient | undefined}
+ */
 let redisClient;
 if (process.env.REDIS_URL) {
 	redisClient = createClient({
@@ -74,10 +79,19 @@ module.exports = async (req, res) => {
 			return res.status(400).json({ error: "Invalid request body" });
 		}
 
-		// Handle incoming messages
+		/**
+		 * Handle incoming text messages.
+		 * Supported commands:
+		 *   - `/question [id]` — send a random question (or by ID).
+		 *     Complexity suffixes: `/questioneasy`, `/questionmedium`, `/questionhard`
+		 *   - `/menu` — show inline keyboard for complexity selection.
+		 * Forum topic context is captured via `message_thread_id` and forwarded
+		 * to all downstream messages so replies stay inside the correct topic.
+		 */
 		if (update.message) {
 			const chatId = update.message.chat?.id;
 			const messageText = update.message.text;
+			const threadId = update.message.message_thread_id;
 
 			if (!chatId) {
 				console.error("Invalid message structure: missing chat.id");
@@ -97,12 +111,13 @@ module.exports = async (req, res) => {
 						"/questionhard": "hard",
 					};
 					const complexity = complexityMap[parts[0]] || "random";
-					await sendQuestionMessage(bot, redisClient, chatId, complexity, questionId);
+					await sendQuestionMessage(bot, redisClient, chatId, complexity, questionId, threadId);
 				}
 
 				// Handle /menu command - shows complexity selection keyboard
 				if (messageText.startsWith("/menu")) {
 					await bot.sendMessage(chatId, "❓ Выбор категории вопроса:", {
+						message_thread_id: threadId,
 						parse_mode: "MarkdownV2",
 						reply_markup: {
 							inline_keyboard: [
@@ -137,10 +152,21 @@ module.exports = async (req, res) => {
 			}
 		}
 
-		// Handle callback queries (inline button clicks)
+		/**
+		 * Handle callback queries from inline button presses.
+		 *
+		 * Three action types (encoded in `callback_query.data` as JSON):
+		 *   - `{ action: "question", complexity }` → send question with chosen complexity
+		 *   - `{ answerKey }` → reveal stored answer, then delete from Redis (one-time)
+		 *   - `{ hintKey }` → generate an AI hint via OpenRouter, then delete from Redis
+		 *
+		 * Forum topic support: `message_thread_id` is extracted from the callback's
+		 * associated message and forwarded to all outgoing messages.
+		 */
 		if (update.callback_query) {
 			const callbackQuery = update.callback_query;
 			const chatId = callbackQuery.message?.chat?.id;
+			const threadId = callbackQuery.message?.message_thread_id;
 
 			// Parse callback data
 			let parsed = null;
@@ -159,7 +185,7 @@ module.exports = async (req, res) => {
 				const complexity = parsed.complexity || "random";
 				try {
 					await bot.answerCallbackQuery(callbackQuery.id);
-					await sendQuestionMessage(bot, redisClient, chatId, complexity);
+					await sendQuestionMessage(bot, redisClient, chatId, complexity, undefined, threadId);
 					// Delete the menu message after selection
 					try {
 						await bot.deleteMessage(chatId, callbackQuery.message.message_id);
@@ -177,7 +203,16 @@ module.exports = async (req, res) => {
 				}
 			}
 
-			// Handle "Show Answer" button click
+			/**
+			 * "Show Answer" flow:
+			 * 1. Retrieve answer data from Redis using the answerKey.
+			 * 2. If expired → send a fallback message with a link to the question.
+			 * 3. If answer has preview images → send as media group (first photo
+			 *    carries the answer text as caption). On error → fall back to text.
+			 * 4. If no images → send answer as plain text.
+			 * 5. Remove inline buttons from the question message (mark as answered).
+			 * 6. Delete the answer from Redis (one-time access guarantee).
+			 */
 			if (parsed && parsed.answerKey) {
 				const answerKey = parsed.answerKey;
 
@@ -198,6 +233,7 @@ module.exports = async (req, res) => {
 							chatId,
 							"⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️",
 							{
+								message_thread_id: threadId,
 								parse_mode: "MarkdownV2",
 								reply_markup: {
 									inline_keyboard: [
@@ -230,12 +266,12 @@ module.exports = async (req, res) => {
 								parse_mode: "MarkdownV2",
 							}),
 						}));
-
 						try {
-							await bot.sendMediaGroup(chatId, media, { reply_to_message_id: messageToReply });
+							await bot.sendMediaGroup(chatId, media, { message_thread_id: threadId, reply_to_message_id: messageToReply });
 						} catch (imgError) {
 							console.error("Error sending answer media group:", imgError);
 							await bot.sendMessage(chatId, answer, {
+								message_thread_id: threadId,
 								parse_mode: "MarkdownV2",
 								reply_to_message_id: messageToReply,
 								disable_web_page_preview: true,
@@ -243,6 +279,7 @@ module.exports = async (req, res) => {
 						}
 					} else {
 						await bot.sendMessage(chatId, answer, {
+							message_thread_id: threadId,
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: messageToReply,
 							disable_web_page_preview: true,
@@ -286,7 +323,16 @@ module.exports = async (req, res) => {
 				}
 			}
 
-			// Handle "Show Hint" button click
+			/**
+			 * "Show Hint" flow:
+			 * 1. Retrieve hint context from Redis (question, answer, description, previews).
+			 * 2. If expired → notify the user and stop.
+			 * 3. Remove the hint button from the inline keyboard (keep answer button).
+			 * 4. Send a loading message, then call OpenRouter API to generate a hint
+			 *    that guides the user toward the answer without revealing it.
+			 * 5. If the API call fails → send a user-friendly error message.
+			 * 6. Delete hint data from Redis (one-time access guarantee).
+			 */
 			if (parsed && parsed.hintKey) {
 				const hintKey = parsed.hintKey;
 
@@ -301,7 +347,7 @@ module.exports = async (req, res) => {
 					const hintDataStr = redisClient ? await redisClient.get(hintKey) : null;
 
 					if (!hintDataStr) {
-						await bot.sendMessage(chatId, "⏰ Время подсказки истекло.");
+						await bot.sendMessage(chatId, "⏰ Время подсказки истекло.", { message_thread_id: threadId });
 						return res.status(200).json({ ok: true });
 					}
 
@@ -334,7 +380,7 @@ module.exports = async (req, res) => {
 					// Generate hint using AI
 					let hint;
 					try {
-						const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...");
+						const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...", { message_thread_id: threadId });
 						hint = await generateHint(question, answer, description, questionPreview);
 						try {
 							await bot.deleteMessage(chatId, loadingMsg.message_id);
@@ -348,6 +394,7 @@ module.exports = async (req, res) => {
 
 					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
 					await bot.sendMessage(chatId, `💡 *Подсказка:*\n${escapeMarkdownV2(hint)}`, {
+						message_thread_id: threadId,
 						parse_mode: "MarkdownV2",
 						reply_to_message_id: messageToReply,
 						disable_web_page_preview: true,
