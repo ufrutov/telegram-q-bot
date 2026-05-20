@@ -75,23 +75,38 @@ module.exports = async (req, res) => {
 			await redisClient.connect();
 		}
 
-		// Parse chat IDs from environment variable
-		// Accepts both positive (users) and negative (groups) IDs
-		const chatIds = targetChats.split(",").map((id) => id.trim()).filter((id) => /^-?\d+$/.test(id));
+		/**
+		 * Parse CRON_TARGET_CHATS into an array of { chatId, threadId } entries.
+		 * Each entry can be:
+		 *   - `123456`           → plain chat ID (General topic)
+		 *   - `123456_42`        → chat ID with forum topic thread ID
+		 *   - `-100123456789`    → negative chat ID (supergroup) with optional thread
+		 * Invalid entries are silently filtered out.
+	 * @type {Array<{chatId: string, threadId: number|undefined}>}
+	 */
+	const entries = targetChats.split(",").map((s) => s.trim()).filter(Boolean);
+	const chatEntries = entries.map((entry) => {
+		const m = entry.match(/^(-?\d+)(?:_(\d+))?$/);
+		return m ? { chatId: m[1], threadId: m[2] ? Number(m[2]) : undefined } : null;
+	}).filter(Boolean);
 
-		if (chatIds.length === 0) {
+		if (chatEntries.length === 0) {
 			return res.status(400).json({ error: "No target chats configured" });
 		}
 
-		console.log(`Starting cron job for ${chatIds.length} chats`);
+		console.log(`Starting cron job for ${chatEntries.length} chats`);
 
 		let successCount = 0;
 		let failCount = 0;
 
-		// Send question to each configured chat
-		for (const chatId of chatIds) {
+		/**
+		 * Send a random question to every configured chat.
+		 * Each chat receives the question independently — a failure for one
+		 * does not affect the others. The counters are logged on completion.
+		 */
+		for (const { chatId, threadId } of chatEntries) {
 			try {
-				await sendQuestionMessage(bot, redisClient, chatId, "random");
+				await sendQuestionMessage(bot, redisClient, chatId, "random", undefined, threadId);
 				successCount++;
 			} catch (err) {
 				console.error(`Failed to send to ${chatId}:`, err.message);

@@ -1,15 +1,40 @@
 # telegram-q-bot
 
-Telegram Question Bot - A Telegram bot deployed on Vercel using serverless functions.
+Telegram Question Bot ("Что? Где? Когда?") — deployed on Vercel as serverless functions.
+
+## Features
+
+- **Random questions** — `/question` or `/menu` to pick by difficulty (easy/medium/hard)
+- **AI hints** — OpenRouter generates logical hints without revealing the answer
+- **Daily cron** — auto-sends a question to configured chats at 12:00 GMT+3
+- **Forum topics** — fully supports Telegram supergroups with forum topics
+- **Multi-source** — questions from `gotquestions.online` (primary) and `questions.chgk.info` (fallback)
 
 ## Project Structure
 
 ```
 telegram-q-bot/
 ├── api/
-│   └── webhook.js    # Vercel serverless function for Telegram webhook
+│   ├── webhook.js               # Telegram webhook handler
+│   └── cron/
+│       └── daily-question.js    # Scheduled question sender
+├── src/
+│   ├── services/
+│   │   ├── questionSender.js    # Shared send logic (webhook + cron)
+│   │   └── openrouter.js        # AI hint generation via OpenRouter
+│   ├── utils/
+│   │   ├── markdown.js          # Telegram MarkdownV2 escaping
+│   │   └── date.js              # Russian date formatting
+│   └── lib/
+│       └── QuestionLoader/      # Question source loaders (factory pattern)
+│           ├── QuestionLoader.js
+│           ├── BaseQuestionLoader.js
+│           ├── GotQuestionsOnlineLoader.js
+│           └── ChgkInfoQuestionLoader.js
 ├── package.json
-├── .gitignore
+├── vercel.json
+├── .github/workflows/
+│   └── deploy.yml
 └── README.md
 ```
 
@@ -29,72 +54,78 @@ npm install
 
 ### 3. Configure Environment Variables
 
-Add your bot token as an environment variable in Vercel:
+Add variables in your Vercel project (**Settings → Environment Variables**):
 
-1. Go to your [Vercel Dashboard](https://vercel.com)
-2. Select your project
-3. Go to **Settings** → **Environment Variables**
-4. Add a new variable:
-   - Name: `TELEGRAM_BOT_TOKEN`
-   - Value: Your bot token from BotFather
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token from BotFather |
+| `CRON_TARGET_CHATS` | For cron | Comma-separated chat IDs (`123456` or `123456_42` for forum topics) |
+| `REDIS_URL` | Recommended | Redis connection for answer/hint storage (24h TTL) |
+| `OPENROUTER_API_KEY` | For hints | OpenRouter API key for AI-generated hints |
+| `CRON_SECRET` | No | Optional secret for manual cron invocations |
 
 ### 4. Deploy to Vercel
 
 #### Option A: Using GitHub Actions (Recommended)
 
-This project includes automated deployment via GitHub Actions. See [GITHUB_SETUP.md](GITHUB_SETUP.md) for detailed setup instructions.
+See [GITHUB_SETUP.md](GITHUB_SETUP.md) for detailed setup.
 
 **Quick setup:**
 1. Get your Vercel token from [Vercel Account Settings](https://vercel.com/account/tokens)
 2. Add `VERCEL_TOKEN` secret to your GitHub repository
 3. Run `vercel link` locally to link your project
-4. Push to `master` branch - GitHub Actions will automatically deploy using `vercel --prod`
+4. Push to `master` branch — GitHub Actions auto-deploys with `vercel --prod`
 
 #### Option B: Manual Deployment with Vercel CLI
 
 ```bash
-# Install Vercel CLI globally
 npm install -g vercel
-
-# Link to your Vercel project (first time)
 vercel link
-
-# Deploy to production
 vercel --prod
 ```
 
-#### Option C: Using Vercel GitHub Integration
+#### Option C: Vercel GitHub Integration
 
 1. Push your code to GitHub
-2. Import your repository in Vercel Dashboard
-3. Vercel will automatically deploy on each push
+2. Import the repository in Vercel Dashboard
+3. Vercel auto-deploys on each push
 
 ### 5. Set Webhook URL
 
-After deploying, set your Telegram bot webhook URL:
-
 ```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-vercel-domain.vercel.app/api/webhook"
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-domain.vercel.app/api/webhook"
 ```
 
-Replace:
-- `<YOUR_BOT_TOKEN>` with your actual bot token
-- `your-vercel-domain.vercel.app` with your Vercel deployment URL
+Replace `<YOUR_BOT_TOKEN>` and the domain with your values.
 
-## API Route
+## Commands
 
-The webhook endpoint is available at:
+| Command | Description |
+|---------|-------------|
+| `/question` | Random question |
+| `/questioneasy` | Easy question |
+| `/questionmedium` | Medium question |
+| `/questionhard` | Hard question |
+| `/menu` | Interactive difficulty chooser |
+
+## API Routes
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `POST /api/webhook` | POST | Telegram update webhook |
+| `GET/POST /api/cron/daily-question` | GET, POST | Cron: sends daily question to configured chats |
+
+## Forum Topic Support
+
+In supergroups with forum topics enabled, all bot messages stay inside the topic
+where the user issued the command. The `message_thread_id` is extracted from the
+incoming update and forwarded to every outgoing message.
+
+For cron jobs, specify the thread ID in `CRON_TARGET_CHATS`:
 ```
-POST /api/webhook
+123456,123456_42,99999_9,88888
 ```
-
-This endpoint receives updates from Telegram and processes incoming messages.
-
-## Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token from BotFather | Yes |
+Entries without a thread ID (`123456`) send to the General topic.
 
 ## License
 

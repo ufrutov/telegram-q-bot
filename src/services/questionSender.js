@@ -10,17 +10,36 @@ const QuestionLoader = require("../lib/QuestionLoader/QuestionLoader");
 const target = "gotquestions.online";
 
 /**
- * Sends a question message to a Telegram chat
+ * Sends a question message to a Telegram chat with answer/hint inline buttons.
+ *
+ * Delivery strategy:
+ *   - If the question has preview images → sends as a media group, then a
+ *     separate "Ответ на вопрос" message with inline buttons (reply to media).
+ *   - If no images → single text message with inline buttons attached.
+ *
+ * Redis persistence:
+ *   - Stores the answer (with optional answerPreview images) under `answer:{chatId}:{id}`
+ *   - Stores hint context (question, answer, description, previews) under `hint:{chatId}:{id}`
+ *   - Both keys expire after 24 hours (3600 × 24 sec).
+ *
+ * Forum topics:
+ *   - When `threadId` is provided and the chat is a forum supergroup, all outgoing
+ *     messages include `message_thread_id` so they appear inside the correct topic.
+ *   - Non-forum chats ignore this field — `threadOpts` resolves to `{}`.
+ *
  * @param {TelegramBot} bot - Telegram bot instance
- * @param {RedisClient} redisClient - Redis client for storing answer/hint data
+ * @param {import('redis').RedisClientType | undefined} redisClient - Redis client for answer/hint storage
  * @param {string|number} chatId - Target chat ID
- * @param {string} complexity - Question complexity (random, easy, medium, hard)
- * @param {string} [questionId] - Optional specific question ID
- * @returns {Promise<{answerKey: string, questionMessageId: number}>}
+ * @param {'random'|'easy'|'medium'|'hard'} complexity - Question difficulty level
+ * @param {string} [questionId] - Specific question ID to load (random if omitted)
+ * @param {number} [threadId] - Telegram forum topic thread ID (undefined for non-forum chats)
+ * @returns {Promise<{answerKey: string, questionMessageId: number}>} Redis key for answer retrieval and the message ID of the question message (used for reply context)
  */
-async function sendQuestionMessage(bot, redisClient, chatId, complexity = "random", questionId = undefined) {
+async function sendQuestionMessage(bot, redisClient, chatId, complexity = "random", questionId = undefined, threadId = undefined) {
+	const threadOpts = threadId ? { message_thread_id: threadId } : {};
+
 	// Send loading message
-	const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...");
+	const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...", threadOpts);
 
 	// Load question from the question service
 	const questionLoader = QuestionLoader(target, complexity);
@@ -56,11 +75,12 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 
 		try {
 			// Send images as media group
-			const messages = await bot.sendMediaGroup(chatId, media);
+			const messages = await bot.sendMediaGroup(chatId, media, threadOpts);
 			const questionMessage = messages[0];
 
 			// Send inline buttons as separate message
 			const separate = await bot.sendMessage(chatId, "Ответ на вопрос", {
+				...threadOpts,
 				reply_to_message_id: questionMessage.message_id,
 				reply_markup: {
 					inline_keyboard: [
@@ -104,6 +124,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 
 	// Send question as regular text message with inline buttons
 	const questionMessage = await bot.sendMessage(chatId, question, {
+		...threadOpts,
 		parse_mode: "MarkdownV2",
 		disable_web_page_preview: true,
 		reply_markup: {

@@ -13,7 +13,7 @@ Sends daily questions to subscribed Telegram chats.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token |
-| `CRON_TARGET_CHATS` | Yes | Comma-separated chat IDs (e.g., `123456,789012`) |
+| `CRON_TARGET_CHATS` | Yes | Comma-separated chat IDs with optional thread IDs (e.g., `123456,123456_42,99999_9,88888`) |
 | `CRON_SECRET` | No | Optional secret for manual testing |
 | `REDIS_URL` | No | Redis connection for answer/hint storage |
 
