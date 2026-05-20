@@ -227,7 +227,8 @@ module.exports = async (req, res) => {
 					const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
 
 					const questionId = answerKey.split(":").at(2);
-					console.log(`[${chatId}] answer: https://${target}/question/${questionId}`);
+					const logChat = threadId ? `${chatId}_${threadId}` : chatId;
+					console.log(`[${logChat}] answer: https://${target}/question/${questionId}`);
 
 					// If answer expired, show link to question
 					if (!answerDataStr) {

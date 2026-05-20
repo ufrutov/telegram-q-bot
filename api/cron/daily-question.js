@@ -109,7 +109,8 @@ module.exports = async (req, res) => {
 				await sendQuestionMessage(bot, redisClient, chatId, "random", undefined, threadId);
 				successCount++;
 			} catch (err) {
-				console.error(`Failed to send to ${chatId}:`, err.message);
+				const logChat = threadId ? `${chatId}_${threadId}` : chatId;
+				console.error(`Failed to send to ${logChat}:`, err.message);
 				failCount++;
 			}
 		}

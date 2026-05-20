@@ -48,7 +48,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 	// Format question and answer for Telegram (MarkdownV2)
 	const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
 
-	console.log(`[${chatId}] ${complexity} question: ${questionData.link}`);
+	console.log(`[${chatId}${threadId ? `_${threadId}` : ''}] ${complexity} question: ${questionData.link}`);
 
 	// Delete loading message
 	try {
