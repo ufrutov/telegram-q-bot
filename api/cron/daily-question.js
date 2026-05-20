@@ -82,13 +82,13 @@ module.exports = async (req, res) => {
 		 *   - `123456_42`        → chat ID with forum topic thread ID
 		 *   - `-100123456789`    → negative chat ID (supergroup) with optional thread
 		 * Invalid entries are silently filtered out.
-		 * @type {Array<{chatId: string, threadId: string|undefined}>}
-		 */
-		const entries = targetChats.split(",").map((s) => s.trim()).filter(Boolean);
-		const chatEntries = entries.map((entry) => {
-			const m = entry.match(/^(-?\d+)(?:_(\d+))?$/);
-			return m ? { chatId: m[1], threadId: m[2] || undefined } : null;
-		}).filter(Boolean);
+	 * @type {Array<{chatId: string, threadId: number|undefined}>}
+	 */
+	const entries = targetChats.split(",").map((s) => s.trim()).filter(Boolean);
+	const chatEntries = entries.map((entry) => {
+		const m = entry.match(/^(-?\d+)(?:_(\d+))?$/);
+		return m ? { chatId: m[1], threadId: m[2] ? Number(m[2]) : undefined } : null;
+	}).filter(Boolean);
 
 		if (chatEntries.length === 0) {
 			return res.status(400).json({ error: "No target chats configured" });

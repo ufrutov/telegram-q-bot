@@ -28,7 +28,7 @@ const target = "gotquestions.online";
  *   - Non-forum chats ignore this field — `threadOpts` resolves to `{}`.
  *
  * @param {TelegramBot} bot - Telegram bot instance
- * @param {import('redis').RedisClient | null} redisClient - Redis client for answer/hint storage
+ * @param {import('redis').RedisClientType | undefined} redisClient - Redis client for answer/hint storage
  * @param {string|number} chatId - Target chat ID
  * @param {'random'|'easy'|'medium'|'hard'} complexity - Question difficulty level
  * @param {string} [questionId] - Specific question ID to load (random if omitted)

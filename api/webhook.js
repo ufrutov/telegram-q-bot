@@ -19,7 +19,7 @@ const target = "gotquestions.online";
  * Redis client for ephemeral answer/hint storage.
  * Initialised only when REDIS_URL is set — otherwise answer/hint buttons
  * will show "time expired" fallback messages with a link to the question.
- * @type {import('redis').RedisClient | undefined}
+ * @type {import('redis').RedisClientType | undefined}
  */
 let redisClient;
 if (process.env.REDIS_URL) {
@@ -92,6 +92,7 @@ module.exports = async (req, res) => {
 			const chatId = update.message.chat?.id;
 			const messageText = update.message.text;
 			const threadId = update.message.message_thread_id;
+			const threadOpts = threadId ? { message_thread_id: threadId } : {};
 
 			if (!chatId) {
 				console.error("Invalid message structure: missing chat.id");
@@ -117,7 +118,7 @@ module.exports = async (req, res) => {
 				// Handle /menu command - shows complexity selection keyboard
 				if (messageText.startsWith("/menu")) {
 					await bot.sendMessage(chatId, "❓ Выбор категории вопроса:", {
-						message_thread_id: threadId,
+						...threadOpts,
 						parse_mode: "MarkdownV2",
 						reply_markup: {
 							inline_keyboard: [
@@ -167,6 +168,7 @@ module.exports = async (req, res) => {
 			const callbackQuery = update.callback_query;
 			const chatId = callbackQuery.message?.chat?.id;
 			const threadId = callbackQuery.message?.message_thread_id;
+			const threadOpts = threadId ? { message_thread_id: threadId } : {};
 
 			// Parse callback data
 			let parsed = null;
@@ -233,7 +235,7 @@ module.exports = async (req, res) => {
 							chatId,
 							"⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️",
 							{
-								message_thread_id: threadId,
+								...threadOpts,
 								parse_mode: "MarkdownV2",
 								reply_markup: {
 									inline_keyboard: [
@@ -267,11 +269,11 @@ module.exports = async (req, res) => {
 							}),
 						}));
 						try {
-							await bot.sendMediaGroup(chatId, media, { message_thread_id: threadId, reply_to_message_id: messageToReply });
+							await bot.sendMediaGroup(chatId, media, { ...threadOpts, reply_to_message_id: messageToReply });
 						} catch (imgError) {
 							console.error("Error sending answer media group:", imgError);
 							await bot.sendMessage(chatId, answer, {
-								message_thread_id: threadId,
+								...threadOpts,
 								parse_mode: "MarkdownV2",
 								reply_to_message_id: messageToReply,
 								disable_web_page_preview: true,
@@ -279,7 +281,7 @@ module.exports = async (req, res) => {
 						}
 					} else {
 						await bot.sendMessage(chatId, answer, {
-							message_thread_id: threadId,
+							...threadOpts,
 							parse_mode: "MarkdownV2",
 							reply_to_message_id: messageToReply,
 							disable_web_page_preview: true,
@@ -347,7 +349,7 @@ module.exports = async (req, res) => {
 					const hintDataStr = redisClient ? await redisClient.get(hintKey) : null;
 
 					if (!hintDataStr) {
-						await bot.sendMessage(chatId, "⏰ Время подсказки истекло.", { message_thread_id: threadId });
+						await bot.sendMessage(chatId, "⏰ Время подсказки истекло.", threadOpts);
 						return res.status(200).json({ ok: true });
 					}
 
@@ -380,7 +382,7 @@ module.exports = async (req, res) => {
 					// Generate hint using AI
 					let hint;
 					try {
-						const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...", { message_thread_id: threadId });
+						const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...", threadOpts);
 						hint = await generateHint(question, answer, description, questionPreview);
 						try {
 							await bot.deleteMessage(chatId, loadingMsg.message_id);
@@ -394,7 +396,7 @@ module.exports = async (req, res) => {
 
 					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
 					await bot.sendMessage(chatId, `💡 *Подсказка:*\n${escapeMarkdownV2(hint)}`, {
-						message_thread_id: threadId,
+						...threadOpts,
 						parse_mode: "MarkdownV2",
 						reply_to_message_id: messageToReply,
 						disable_web_page_preview: true,
