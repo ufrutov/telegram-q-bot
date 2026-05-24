@@ -27,7 +27,7 @@ class BaseQuestionLoader {
 			parts.question = `${prefix} *Вопрос ${questionData.number}*`;
 			if (questionData.trueDl) {
 				const complexityEmoji = COMPLEXITY_EMOJI[complexity] || "↗️";
-				parts.question += ` • Cложность: *${questionData.trueDl}* ${complexityEmoji}`
+				parts.question += ` • Cложность: *${escapeMarkdownV2(questionData.trueDl)}* ${complexityEmoji}`
 			}
 			
 			parts.question += `\n${escapeMarkdownV2(questionData.question)}`;
