@@ -1,0 +1,428 @@
+/**
+ * Telegram Bot Webhook Handler
+ * Processes incoming updates from Telegram (messages and callback queries)
+ */
+
+const TelegramBot = require("node-telegram-bot-api");
+const { generateHint, formatErrorMessage } = require("../src/services/openrouter");
+const { escapeMarkdownV2 } = require("../src/utils/markdown");
+const { createClient } = require("redis");
+const { sendQuestionMessage } = require("../src/services/questionSender");
+
+/** Bot token from environment variables */
+const token = process.env.TELEGRAM_BOT_TOKEN;
+
+/** Target questions service domain */
+const target = "gotquestions.online";
+
+/**
+ * Redis client for ephemeral answer/hint storage.
+ * Initialised only when REDIS_URL is set — otherwise answer/hint buttons
+ * will show "time expired" fallback messages with a link to the question.
+ * @type {import('redis').RedisClientType | undefined}
+ */
+let redisClient;
+if (process.env.REDIS_URL) {
+	redisClient = createClient({
+		url: process.env.REDIS_URL,
+	});
+	redisClient.on("error", (err) => console.error("Redis Client Error", err));
+}
+
+/**
+ * Validates Telegram bot token format
+ * @param {string} botToken - Token to validate
+ * @returns {boolean} - True if valid format
+ */
+function isValidTokenFormat(botToken) {
+	if (!botToken || typeof botToken !== "string") {
+		return false;
+	}
+	// Telegram bot token format: digits:alphanumeric string
+	const tokenPattern = /^\d+:[A-Za-z0-9_-]+$/;
+	return tokenPattern.test(botToken);
+}
+
+// Create bot instance
+let bot;
+if (token && isValidTokenFormat(token)) {
+	bot = new TelegramBot(token);
+}
+
+/**
+ * Main webhook handler - processes Telegram updates
+ * @param {import('http').IncomingMessage} req - HTTP request
+ * @param {import('http').ServerResponse} res - HTTP response
+ */
+module.exports = async (req, res) => {
+	// Only accept POST requests
+	if (req.method !== "POST") {
+		return res.status(405).json({ error: "Method not allowed" });
+	}
+
+	// Check bot configuration
+	if (!token || !bot) {
+		console.error("TELEGRAM_BOT_TOKEN is not configured");
+		return res.status(500).json({ error: "Bot not configured" });
+	}
+
+	try {
+		// Connect Redis if configured
+		if (redisClient && !redisClient.isOpen) {
+			await redisClient.connect();
+		}
+
+		const update = req.body;
+
+		// Validate request body
+		if (!update || typeof update !== "object") {
+			return res.status(400).json({ error: "Invalid request body" });
+		}
+
+		/**
+		 * Handle incoming text messages.
+		 * Supported commands:
+		 *   - `/question [id]` — send a random question (or by ID).
+		 *     Complexity suffixes: `/questioneasy`, `/questionmedium`, `/questionhard`
+		 *   - `/menu` — show inline keyboard for complexity selection.
+		 * Forum topic context is captured via `message_thread_id` and forwarded
+		 * to all downstream messages so replies stay inside the correct topic.
+		 */
+		if (update.message) {
+			const chatId = update.message.chat?.id;
+			const messageText = update.message.text;
+			const threadId = update.message.message_thread_id;
+			const threadOpts = threadId ? { message_thread_id: threadId } : {};
+
+			if (!chatId) {
+				console.error("Invalid message structure: missing chat.id");
+				return res.status(200).json({ ok: true });
+			}
+
+			if (messageText) {
+				// Handle /question command with optional complexity
+				if (messageText.startsWith("/question")) {
+					const parts = messageText.split(/\s+/);
+					const questionId = parts.length > 1 && /^\d+$/.test(parts[1]) ? parts[1] : null;
+
+					const complexityMap = {
+						"/question": "random",
+						"/questioneasy": "easy",
+						"/questionmedium": "medium",
+						"/questionhard": "hard",
+					};
+					const complexity = complexityMap[parts[0]] || "random";
+					await sendQuestionMessage(bot, redisClient, chatId, complexity, questionId, threadId);
+				}
+
+				// Handle /menu command - shows complexity selection keyboard
+				if (messageText.startsWith("/menu")) {
+					await bot.sendMessage(chatId, "❓ Выбор категории вопроса:", {
+						...threadOpts,
+						parse_mode: "MarkdownV2",
+						reply_markup: {
+							inline_keyboard: [
+								[
+									{
+										text: "Лёгкий вопрос",
+										callback_data: JSON.stringify({ action: "question", complexity: "easy" }),
+									},
+								],
+								[
+									{
+										text: "Стандартный вопрос",
+										callback_data: JSON.stringify({ action: "question", complexity: "medium" }),
+									},
+								],
+								[
+									{
+										text: "Сложный вопрос",
+										callback_data: JSON.stringify({ action: "question", complexity: "hard" }),
+									},
+								],
+								[
+									{
+										text: "Случайный вопрос",
+										callback_data: JSON.stringify({ action: "question", complexity: "random" }),
+									},
+								],
+							],
+						},
+					});
+				}
+			}
+		}
+
+		/**
+		 * Handle callback queries from inline button presses.
+		 *
+		 * Three action types (encoded in `callback_query.data` as JSON):
+		 *   - `{ action: "question", complexity }` → send question with chosen complexity
+		 *   - `{ answerKey }` → reveal stored answer, then delete from Redis (one-time)
+		 *   - `{ hintKey }` → generate an AI hint via OpenRouter, then delete from Redis
+		 *
+		 * Forum topic support: `message_thread_id` is extracted from the callback's
+		 * associated message and forwarded to all outgoing messages.
+		 */
+		if (update.callback_query) {
+			const callbackQuery = update.callback_query;
+			const chatId = callbackQuery.message?.chat?.id;
+			const threadId = callbackQuery.message?.message_thread_id;
+			const threadOpts = threadId ? { message_thread_id: threadId } : {};
+
+			// Parse callback data
+			let parsed = null;
+			try {
+				parsed = JSON.parse(callbackQuery.data);
+			} catch (e) {
+				parsed = null;
+			}
+
+			if (!chatId) {
+				return res.status(200).json({ ok: true });
+			}
+
+			// Handle menu selection - send question with selected complexity
+			if (parsed && parsed.action === "question") {
+				const complexity = parsed.complexity || "random";
+				try {
+					await bot.answerCallbackQuery(callbackQuery.id);
+					await sendQuestionMessage(bot, redisClient, chatId, complexity, undefined, threadId);
+					// Delete the menu message after selection
+					try {
+						await bot.deleteMessage(chatId, callbackQuery.message.message_id);
+					} catch (e2) {
+						// ignore
+					}
+					return res.status(200).json({ ok: true });
+				} catch (err) {
+					console.error("Error handling question callback:", err);
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "❌ Ошибка при загрузке вопроса",
+						show_alert: true,
+					});
+					return res.status(200).json({ ok: true });
+				}
+			}
+
+			/**
+			 * "Show Answer" flow:
+			 * 1. Retrieve answer data from Redis using the answerKey.
+			 * 2. If expired → send a fallback message with a link to the question.
+			 * 3. If answer has preview images → send as media group (first photo
+			 *    carries the answer text as caption). On error → fall back to text.
+			 * 4. If no images → send answer as plain text.
+			 * 5. Remove inline buttons from the question message (mark as answered).
+			 * 6. Delete the answer from Redis (one-time access guarantee).
+			 */
+			if (parsed && parsed.answerKey) {
+				const answerKey = parsed.answerKey;
+
+				if (!answerKey) {
+					return res.status(200).json({ ok: true });
+				}
+
+				try {
+					// Get answer data from Redis
+					const answerDataStr = redisClient ? await redisClient.get(answerKey) : null;
+
+					const questionId = answerKey.split(":").at(2);
+					const logChat = threadId ? `${chatId}_${threadId}` : chatId;
+					console.log(`[${logChat}] answer: https://${target}/question/${questionId}`);
+
+					// If answer expired, show link to question
+					if (!answerDataStr) {
+						await bot.sendMessage(
+							chatId,
+							"⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️",
+							{
+								...threadOpts,
+								parse_mode: "MarkdownV2",
+								reply_markup: {
+									inline_keyboard: [
+										[
+											{
+												text: `❓ Вопрос ${questionId}`,
+												url: `https://${target}/question/${questionId}`,
+											},
+										],
+									],
+								},
+							},
+						);
+						return res.status(200).json({ ok: true });
+					}
+
+					const answerData = JSON.parse(answerDataStr);
+					const { answer, answerPreview, questionMessageId = undefined } = answerData;
+
+					// Determine which message to reply to
+					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
+
+					// Send answer with images or text
+					if (answerPreview && answerPreview.length > 0) {
+						const media = answerPreview.map((url, index) => ({
+							type: "photo",
+							media: url,
+							...(index === 0 && {
+								caption: answer,
+								parse_mode: "MarkdownV2",
+							}),
+						}));
+						try {
+							await bot.sendMediaGroup(chatId, media, { ...threadOpts, reply_to_message_id: messageToReply });
+						} catch (imgError) {
+							console.error("Error sending answer media group:", imgError);
+							await bot.sendMessage(chatId, answer, {
+								...threadOpts,
+								parse_mode: "MarkdownV2",
+								reply_to_message_id: messageToReply,
+								disable_web_page_preview: true,
+							});
+						}
+					} else {
+						await bot.sendMessage(chatId, answer, {
+							...threadOpts,
+							parse_mode: "MarkdownV2",
+							reply_to_message_id: messageToReply,
+							disable_web_page_preview: true,
+						});
+					}
+
+					// Remove inline buttons from question message
+					try {
+						await bot.editMessageReplyMarkup(
+							{ inline_keyboard: [] },
+							{ chat_id: chatId, message_id: callbackQuery.message.message_id },
+						);
+					} catch (editError) {
+						console.error("Error removing reply markup:", editError);
+					}
+
+					// Delete separate button message if question had images
+					if (questionMessageId) {
+						try {
+							await bot.deleteMessage(chatId, callbackQuery.message.message_id);
+						} catch (deleteError) {
+							console.error(
+								"Error deleting separated message after question with media group:",
+								deleteError,
+							);
+						}
+					}
+
+					// Delete answer data from Redis (one-time use)
+					if (redisClient) {
+						await redisClient.del(answerKey);
+					}
+					return res.status(200).json({ ok: true });
+				} catch (error) {
+					console.error("Error handling callback query (answer):", error);
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "❌ Ошибка при загрузке ответа",
+						show_alert: true,
+					});
+					return res.status(200).json({ ok: true });
+				}
+			}
+
+			/**
+			 * "Show Hint" flow:
+			 * 1. Retrieve hint context from Redis (question, answer, description, previews).
+			 * 2. If expired → notify the user and stop.
+			 * 3. Remove the hint button from the inline keyboard (keep answer button).
+			 * 4. Send a loading message, then call OpenRouter API to generate a hint
+			 *    that guides the user toward the answer without revealing it.
+			 * 5. If the API call fails → send a user-friendly error message.
+			 * 6. Delete hint data from Redis (one-time access guarantee).
+			 */
+			if (parsed && parsed.hintKey) {
+				const hintKey = parsed.hintKey;
+
+				if (!hintKey) {
+					return res.status(200).json({ ok: true });
+				}
+
+				try {
+					await bot.answerCallbackQuery(callbackQuery.id);
+
+					// Get hint data from Redis
+					const hintDataStr = redisClient ? await redisClient.get(hintKey) : null;
+
+					if (!hintDataStr) {
+						await bot.sendMessage(chatId, "⏰ Время подсказки истекло.", threadOpts);
+						return res.status(200).json({ ok: true });
+					}
+
+					const hintData = JSON.parse(hintDataStr);
+					const {
+						question,
+						answer,
+						description,
+						questionMessageId,
+						questionPreview = [],
+					} = hintData;
+
+					// Remove hint button from keyboard (keep answer button)
+					try {
+						const answerKeyMatch = callbackQuery.message.reply_markup?.inline_keyboard?.[0]?.find(
+							(btn) => btn.text === "📖 Показать ответ",
+						);
+						const newKeyboard = answerKeyMatch
+							? { inline_keyboard: [[answerKeyMatch]] }
+							: { inline_keyboard: [] };
+
+						await bot.editMessageReplyMarkup(newKeyboard, {
+							chat_id: chatId,
+							message_id: callbackQuery.message.message_id,
+						});
+					} catch (editError) {
+						console.error("Error removing reply markup:", editError);
+					}
+
+					// Generate hint using AI
+					let hint;
+					try {
+						const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...", threadOpts);
+						hint = await generateHint(question, answer, description, questionPreview);
+						try {
+							await bot.deleteMessage(chatId, loadingMsg.message_id);
+						} catch (dErr) {
+							// ignore
+						}
+					} catch (genError) {
+						console.error("Error generating hint:", genError.message);
+						hint = formatErrorMessage(genError);
+					}
+
+					const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
+					await bot.sendMessage(chatId, `💡 *Подсказка:*\n${escapeMarkdownV2(hint)}`, {
+						...threadOpts,
+						parse_mode: "MarkdownV2",
+						reply_to_message_id: messageToReply,
+						disable_web_page_preview: true,
+					});
+
+					// Delete hint data from Redis
+					if (redisClient) {
+						await redisClient.del(hintKey);
+					}
+
+					return res.status(200).json({ ok: true });
+				} catch (error) {
+					console.error("Error handling callback query (hint):", error);
+					await bot.answerCallbackQuery(callbackQuery.id, {
+						text: "❌ Ошибка при загрузке подсказки",
+						show_alert: true,
+					});
+					return res.status(200).json({ ok: true });
+				}
+			}
+		}
+
+		return res.status(200).json({ ok: true });
+	} catch (error) {
+		console.error("Error processing webhook:", error);
+		return res.status(500).json({ error: "Internal server error" });
+	}
+};

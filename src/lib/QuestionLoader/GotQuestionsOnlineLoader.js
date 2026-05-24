@@ -1,6 +1,7 @@
 const BaseQuestionLoader = require("./BaseQuestionLoader");
 const { formatDate } = require("../../utils/date");
 const { escapeMarkdownV2 } = require("../../utils/markdown");
+const { COMPLEXITY_EMOJI } = require("../../bot/constants");
 
 /**
  * TrueDL complexity ranges mapping
@@ -73,12 +74,23 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 			const packData = await response.json();
 
-			// Return only the required fields
+			// Collect all questions from all tours
+			const questions = [];
+			if (packData.tours && Array.isArray(packData.tours)) {
+				for (const tour of packData.tours) {
+					if (tour.questions && Array.isArray(tour.questions)) {
+						questions.push(...tour.questions);
+					}
+				}
+			}
+
+			// Return pack data including questions array
 			return {
 				id: packData.id,
 				pubDate: packData.pubDate,
 				title: packData.title,
 				trueDl: packData.trueDl,
+				questions: questions,
 			};
 		} catch (error) {
 			console.warn(`Failed to load pack ${packId}: ${error.message}`);
@@ -150,7 +162,9 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 		// Add complexity percent to description
 		if (questionData.complexity && questionData.complexity.length > 0) {
-			let complexityText = `[↗️](${this.baseUrl}/question/${questionData.id})`;
+			// Get complexity emoji based on the complexity level used to load the question
+			const complexityEmoji = COMPLEXITY_EMOJI[this.complexity] || "↗️";
+			let complexityText = `[${complexityEmoji}](${this.baseUrl}/question/${questionData.id})`;
 
 			// Add pack complexity if available
 			if (Array.isArray(packData?.trueDl) && packData.trueDl.length > 0) {
@@ -169,7 +183,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			// Add pack info if available
 			if (packData?.title) {
 				const escapedTitle = escapeMarkdownV2(packData.title);
-				complexityText += `\n[*${escapedTitle}*](${this.baseUrl}/pack/${packData.id}/) • ${formatDate(packData.pubDate)}`;
+				complexityText += `\n[🏆](${this.baseUrl}/pack/${packData.id}/) [*${escapedTitle}*](/pack ${packData.id}) • ${formatDate(packData.pubDate)}`;
 			}
 
 			descriptionParts.push(complexityText);

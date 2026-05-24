@@ -5,6 +5,7 @@ Telegram Question Bot ("Что? Где? Когда?") — deployed on Vercel as 
 ## Features
 
 - **Random questions** — `/question` or `/menu` to pick by difficulty (easy/medium/hard)
+- **Question packs** — `/pack` to browse and select questions from complete tournament packs
 - **AI hints** — OpenRouter generates logical hints without revealing the answer
 - **Daily cron** — auto-sends a question to configured chats at 12:00 GMT+3
 - **Forum topics** — fully supports Telegram supergroups with forum topics
@@ -15,12 +16,24 @@ Telegram Question Bot ("Что? Где? Когда?") — deployed on Vercel as 
 ```
 telegram-q-bot/
 ├── api/
-│   ├── webhook.js               # Telegram webhook handler
+│   ├── webhook.js               # Main webhook entry point (routes updates)
+│   ├── handlers/
+│   │   ├── messageHandler.js   # Text command processor (/question, /menu, /pack)
+│   │   ├── callbackHandler.js  # Button press router
+│   │   └── callbacks/
+│   │       ├── questionCallback.js      # Menu selection handler
+│   │       ├── answerCallback.js        # Answer reveal handler
+│   │       ├── hintCallback.js          # AI hint generator
+│   │       └── packQuestionCallback.js  # Pack question selection handler
 │   └── cron/
 │       └── daily-question.js    # Scheduled question sender
 ├── src/
+│   ├── bot/
+│   │   ├── botClient.js         # Bot & Redis initialization
+│   │   └── constants.js         # Centralized UI messages
 │   ├── services/
-│   │   ├── questionSender.js    # Shared send logic (webhook + cron)
+│   │   ├── questionSender.js    # Question loading & sending
+│   │   ├── packSender.js        # Pack loading & keyboard generation
 │   │   └── openrouter.js        # AI hint generation via OpenRouter
 │   ├── utils/
 │   │   ├── markdown.js          # Telegram MarkdownV2 escaping
@@ -102,11 +115,40 @@ Replace `<YOUR_BOT_TOKEN>` and the domain with your values.
 
 | Command | Description |
 |---------|-------------|
-| `/question` | Random question |
-| `/questioneasy` | Easy question |
-| `/questionmedium` | Medium question |
-| `/questionhard` | Hard question |
-| `/menu` | Interactive difficulty chooser |
+| `/question` | Random question (any difficulty) |
+| `/question <id>` | Load specific question by ID |
+| `/questioneasy` | Random easy question |
+| `/questionmedium` | Random medium question |
+| `/questionhard` | Random hard question |
+| `/menu` | Interactive difficulty selection menu |
+| `/pack` | Display random question pack with interactive keyboard |
+| `/pack <id>` | Display specific pack by ID (e.g., `/pack 6449`) |
+
+### Pack Command
+
+The `/pack` command displays a complete tournament pack with an inline keyboard for easy question navigation:
+
+**Features:**
+- **Pack information**: Title (linked), publication date, average complexity, question count
+- **Interactive keyboard**: Question numbers arranged in rows of 6 for easy selection
+- **Persistent display**: Pack message remains visible after selecting questions
+- **Random or specific**: Use `/pack` for random pack or `/pack 6449` for specific pack
+
+**Example usage:**
+```
+User: /pack
+Bot: [Синхронный турнир «Кубок Владимира Бурды»](https://gotquestions.online/pack/6449/)
+     📅 26 августа 2025
+     ⚡ Сложность: 2.6
+     📊 Вопросов: 36
+     
+     Выберите вопрос:
+     [1][2][3][4][5][6]
+     [7][8][9][10][11][12]
+     ...
+```
+
+Clicking any number loads that specific question with answer/hint buttons.
 
 ## API Routes
 
