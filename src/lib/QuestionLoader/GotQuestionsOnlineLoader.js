@@ -183,7 +183,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			// Add pack info if available
 			if (packData?.title) {
 				const escapedTitle = escapeMarkdownV2(packData.title);
-				complexityText += `\n[🏆](${this.baseUrl}/pack/${packData.id}/) [*${escapedTitle}*](/pack ${packData.id}) • ${formatDate(packData.pubDate)}`;
+				complexityText += `\n[*${escapedTitle}*](${this.baseUrl}/pack/${packData.id}/) • ${formatDate(packData.pubDate)}`;
+				complexityText += `\n📑 **/pack ${packData.id}**`
 			}
 
 			descriptionParts.push(complexityText);
