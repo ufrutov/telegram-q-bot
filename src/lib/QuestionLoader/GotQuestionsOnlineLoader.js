@@ -110,7 +110,6 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			id: questionData.id,
 			packId: questionData.packId || null,
 			number: questionData.number,
-			trueDl: packData.trueDl || null,
 			question: null,
 			answer: null,
 			description: null,
@@ -175,6 +174,9 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 					packData.trueDl.reduce((a, b) => a + b) / packData.trueDl.length
 				).toFixed(1);
 				complexityText += ` Cложность *${packComplexity}*`;
+
+				// Include Pack TrueDL into return output
+				result.trueDl = packComplexity;
 			}
 
 			const questionComplexity = (
