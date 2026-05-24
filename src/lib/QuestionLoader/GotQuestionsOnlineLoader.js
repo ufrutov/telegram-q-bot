@@ -108,6 +108,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	parseQuestionData(questionData, questionLink, packData = null) {
 		const result = {
 			id: questionData.id,
+			packId: questionData.packId || null,
 			question: null,
 			answer: null,
 			description: null,
