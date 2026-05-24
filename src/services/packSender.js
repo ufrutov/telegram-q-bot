@@ -118,7 +118,7 @@ function formatPackInfo(packData) {
 	const formattedDate = formatDate(pubDate);
 	
 	// Build message with pack info
-	let message = `[*${escapedTitle}*](https://${baseUrl}/pack/${id}/)\n`;
+	let message = `Пакет: [*${escapedTitle}*](https://${baseUrl}/pack/${id}/)\n`;
 	
 	if (formattedDate) {
 		message += `📅 ${escapeMarkdownV2(formattedDate)}\n`;
