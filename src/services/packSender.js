@@ -111,6 +111,9 @@ function formatPackInfo(packData) {
 	// Escape title for MarkdownV2
 	const escapedTitle = escapeMarkdownV2(title);
 	
+	// Escape complexity value (contains decimal point that must be escaped)
+	const escapedComplexity = escapeMarkdownV2(avgComplexity);
+	
 	// Format date
 	const formattedDate = formatDate(pubDate);
 	
@@ -121,7 +124,7 @@ function formatPackInfo(packData) {
 		message += `📅 ${escapeMarkdownV2(formattedDate)}\n`;
 	}
 	
-	message += `⚡ Сложность: *${avgComplexity}*\n`;
+	message += `⚡ Сложность: *${escapedComplexity}*\n`;
 	message += `📊 Вопросов: *${questions.length}*\n\n`;
 	message += `Выберите вопрос:`;
 	
