@@ -25,7 +25,7 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 		if (!answerDataStr) {
 			await bot.sendMessage(
 				chatId,
-				'⏰ Время ответа истекло.\\nУвидеть ответ можно по ссылке ниже ↗️',
+				'⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️',
 				{
 					...threadOpts,
 					parse_mode: 'MarkdownV2',

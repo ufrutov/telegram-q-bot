@@ -70,7 +70,7 @@ module.exports = async function hintCallback(bot, redis, callbackQuery, parsed, 
 
 		// Send hint message
 		const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
-		await bot.sendMessage(chatId, `💡 *Подсказка:*\\n${escapeMarkdownV2(hint)}`, {
+		await bot.sendMessage(chatId, `💡 *Подсказка:*\n${escapeMarkdownV2(hint)}`, {
 			...threadOpts,
 			parse_mode: 'MarkdownV2',
 			reply_to_message_id: messageToReply,
