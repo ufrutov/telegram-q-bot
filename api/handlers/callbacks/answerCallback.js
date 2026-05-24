@@ -85,7 +85,7 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 				parse_mode: 'MarkdownV2',
 				reply_to_message_id: messageToReply,
 				disable_web_page_preview: true,
-				reply_markup: replyMarkup
+				reply_markup: undefined
 			});
 		}
 
