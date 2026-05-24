@@ -46,7 +46,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 	const questionData = await questionLoader.loadQuestion(questionId);
 	
 	// Format question and answer for Telegram (MarkdownV2)
-	const { question, answer } = questionLoader.formatForTelegram(questionData, true, false);
+	const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
 
 	console.log(`[${chatId}${threadId ? `_${threadId}` : ''}] ${complexity} question: ${questionData.link}`);
 
@@ -101,7 +101,11 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 			// Store answer and hint data in Redis (24h TTL)
 			if (redisClient) {
 				const answerPreview = questionData.answerPreview || [];
-				await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
+				await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ 
+					answer, 
+					answerPreview,
+					packId: questionData.packId || null 
+				}));
 				await redisClient.setEx(
 					hintKey,
 					3600 * 24,
@@ -146,7 +150,11 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 	// Store answer and hint data in Redis (24h TTL)
 	if (redisClient) {
 		const answerPreview = questionData.answerPreview || [];
-		await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ answer, answerPreview }));
+		await redisClient.setEx(answerKey, 3600 * 24, JSON.stringify({ 
+			answer, 
+			answerPreview,
+			packId: questionData.packId || null 
+		}));
 		await redisClient.setEx(
 			hintKey,
 			3600 * 24,

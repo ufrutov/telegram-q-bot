@@ -109,6 +109,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 		const result = {
 			id: questionData.id,
 			packId: questionData.packId || null,
+			number: questionData.number,
+			trueDl: packData.trueDl || null,
 			question: null,
 			answer: null,
 			description: null,

@@ -41,7 +41,7 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 		}
 
 		const answerData = JSON.parse(answerDataStr);
-		const { answer, answerPreview, questionMessageId = undefined } = answerData;
+		const { answer, answerPreview, questionMessageId = undefined, packId = null } = answerData;
 
 		// Determine which message to reply to
 		const messageToReply = questionMessageId ?? callbackQuery.message.message_id;
@@ -72,11 +72,20 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 				});
 			}
 		} else {
+			// Build inline keyboard with pack button if packId exists
+			const replyMarkup = packId ? {
+				inline_keyboard: [[{
+					text: '📦 Играть весь пакет',
+					callback_data: JSON.stringify({ action: 'pack', packId })
+				}]]
+			} : undefined;
+			
 			await bot.sendMessage(chatId, answer, {
 				...threadOpts,
 				parse_mode: 'MarkdownV2',
 				reply_to_message_id: messageToReply,
 				disable_web_page_preview: true,
+				reply_markup: replyMarkup
 			});
 		}
 
