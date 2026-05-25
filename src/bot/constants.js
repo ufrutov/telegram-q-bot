@@ -3,6 +3,8 @@
  */
 module.exports = {
 	TARGET_DOMAIN: 'gotquestions.online',
+	PACK_MAX_QUESTIONS_TO_SHOW: 36,
+	PACK_QUESTIONS_PER_ROW: 6,
 	
 	// Complexity emoji mapping
 	COMPLEXITY_EMOJI: {

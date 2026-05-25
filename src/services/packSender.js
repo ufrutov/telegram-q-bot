@@ -4,6 +4,11 @@
 const QuestionLoader = require('../lib/QuestionLoader/QuestionLoader');
 const { escapeMarkdownV2 } = require('../utils/markdown');
 const { formatDate } = require('../utils/date');
+const {
+	TARGET_DOMAIN,
+	PACK_MAX_QUESTIONS_TO_SHOW,
+	PACK_QUESTIONS_PER_ROW,
+} = require('../bot/constants');
 
 /**
  * Sends a pack info message with inline keyboard for question selection
@@ -26,7 +31,7 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 		
 		if (packId) {
 			// Load specific pack by ID
-			const questionLoader = QuestionLoader('gotquestions.online', 'random');
+			const questionLoader = QuestionLoader(TARGET_DOMAIN, 'random');
 			packData = await questionLoader.loadPackData(packId);
 			
 			if (!packData || !packData.questions || packData.questions.length === 0) {
@@ -34,7 +39,7 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 			}
 		} else {
 			// Load random question first, then get its pack
-			const questionLoader = QuestionLoader('gotquestions.online', 'random');
+			const questionLoader = QuestionLoader(TARGET_DOMAIN, 'random');
 			const questionData = await questionLoader.loadQuestion();
 			
 			if (!questionData || !questionData.packId) {
@@ -50,10 +55,11 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 		}
 		
 		// Format pack info message
-		const packInfoText = formatPackInfo(packData);
+		const { displayedQuestions, questionsCaption } = getDisplayedPackQuestions(packData.questions);
+		const packInfoText = formatPackInfo(packData, questionsCaption);
 		
 		// Build inline keyboard (6 questions per row)
-		const keyboard = buildPackKeyboard(packData.questions);
+		const keyboard = buildPackKeyboard(displayedQuestions);
 		
 		// Delete loading message
 		try {
@@ -95,11 +101,39 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 }
 
 /**
- * Format pack information message with MarkdownV2
+ * Applies UI question limit for pack keyboard and builds the caption text.
+ *
+ * Behavior:
+ * - If total questions exceed the configured limit, only first N are returned
+ *   and caption is "N/total".
+ * - Otherwise all questions are returned and caption is "total".
+ *
+ * @param {Array<{id: string|number}>} questions - Full pack questions list
+ * @returns {{displayedQuestions: Array<{id: string|number}>, questionsCaption: string}}
  */
-function formatPackInfo(packData) {
+function getDisplayedPackQuestions(questions) {
+	const totalQuestions = questions.length;
+	const hasQuestionLimit = totalQuestions > PACK_MAX_QUESTIONS_TO_SHOW;
+	const displayedQuestions = hasQuestionLimit
+		? questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW)
+		: questions;
+	const questionsCaption = hasQuestionLimit
+		? `${PACK_MAX_QUESTIONS_TO_SHOW}/${totalQuestions}`
+		: `${totalQuestions}`;
+
+	return { displayedQuestions, questionsCaption };
+}
+
+/**
+ * Format pack information message with MarkdownV2
+ *
+ * @param {{id: string|number, title: string, pubDate?: string, trueDl?: number[], questions: Array}} packData - Pack metadata and questions
+ * @param {string|null} [questionsCaption=null] - Optional precomputed question count text (e.g. "36/52")
+ * @returns {string} Formatted MarkdownV2 message body
+ */
+function formatPackInfo(packData, questionsCaption = null) {
 	const { id, title, pubDate, trueDl, questions } = packData;
-	const baseUrl = 'gotquestions.online';
+	const baseUrl = TARGET_DOMAIN;
 	
 	// Calculate average complexity from trueDl array
 	let avgComplexity = '—';
@@ -125,22 +159,26 @@ function formatPackInfo(packData) {
 	}
 	
 	message += `⚡ Сложность: *${escapedComplexity}*\n`;
-	message += `📊 Вопросов: *${questions.length}*\n\n`;
-	message += `Выберите вопрос:`;
+	const questionCountText = questionsCaption || String(questions.length);
+	message += `📊 Вопросов: *${escapeMarkdownV2(questionCountText)}*\n\n`;
+	message += `**Выберите вопрос:**`;
 	
 	return message;
 }
 
 /**
  * Build inline keyboard with question numbers (6 per row)
+ *
+ * @param {Array<{id: string|number}>} questions - Questions to show as keyboard buttons
+ * @returns {{inline_keyboard: Array<Array<{text: string, callback_data: string}>>}} Telegram inline keyboard payload
  */
 function buildPackKeyboard(questions) {
 	const buttons = [];
-	const questionsPerRow = 6;
+	const questionsPerRow = PACK_QUESTIONS_PER_ROW;
 	
 	// Create button for each question
 	for (let i = 0; i < questions.length; i++) {
-		const questionNum = i + 1;  // Absolute numbering: 1-36
+		const questionNum = i + 1;
 		const questionId = questions[i].id;
 		
 		buttons.push({

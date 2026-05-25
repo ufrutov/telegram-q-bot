@@ -80,10 +80,6 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				for (const tour of packData.tours) {
 					if (tour.questions && Array.isArray(tour.questions)) {
 						questions.push(...tour.questions);
-						// Limit to 50 questions total
-						if (questions.length >= 50) {
-							break;
-						}
 					}
 				}
 			}
