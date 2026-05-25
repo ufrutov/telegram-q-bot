@@ -39,10 +39,6 @@ function escapeMarkdownV2(text) {
 		replaced = replaced.split(char).join("\\" + char);
 	}
 
-	// Preserve MarkdownV2 blockquote markers at line start.
-	// All other '>' remain escaped as literal characters.
-	replaced = replaced.replace(/(^|\n)\\>(?=\s|$)/g, "$1>");
-
 	// Restore original links
 	replaced = replaced.replace(/\u0000MDLINK(\d+)\u0000/g, (_, n) => placeholders[Number(n)]);
 

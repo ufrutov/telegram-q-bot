@@ -1,7 +1,6 @@
 const BaseQuestionLoader = require("./BaseQuestionLoader");
 const { formatDate } = require("../../utils/date");
 const { escapeMarkdownV2 } = require("../../utils/markdown");
-const { COMPLEXITY_EMOJI, PACK_MAX_QUESTIONS_TO_SHOW } = require("../../bot/constants");
 
 /**
  * TrueDL complexity ranges mapping
@@ -57,8 +56,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	/**
 	 * Load Questions Pack data from API
 	 * @param {number|string} packId - Pack ID to load
-	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, trueDl,
-	 * total questions count, and capped questions list, or null if not found
+	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, and trueDl fields, or null if not found
 	 */
 	async loadPackData(packId) {
 		if (!packId) {
@@ -75,26 +73,12 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 			const packData = await response.json();
 
-			// Collect all questions from all tours
-			const questions = [];
-			if (packData.tours && Array.isArray(packData.tours)) {
-				for (const tour of packData.tours) {
-					if (tour.questions && Array.isArray(tour.questions)) {
-						questions.push(...tour.questions);
-					}
-				}
-			}
-
-			const total = questions.length;
-
-			// Return pack data including questions array
+			// Return only the required fields
 			return {
 				id: packData.id,
 				pubDate: packData.pubDate,
 				title: packData.title,
 				trueDl: packData.trueDl,
-				total,
-				questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW),
 			};
 		} catch (error) {
 			console.warn(`Failed to load pack ${packId}: ${error.message}`);
@@ -112,8 +96,6 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	parseQuestionData(questionData, questionLink, packData = null) {
 		const result = {
 			id: questionData.id,
-			packId: questionData.packId || null,
-			number: questionData.number,
 			question: null,
 			answer: null,
 			description: null,
@@ -132,8 +114,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			const razdatkaText = questionData.razdatkaText.trim();
 			if (razdatkaText) {
 				result.question = result.question
-					? `${result.question}\n\n> ${razdatkaText}` // > Block quote using Markdown
-					: `> ${razdatkaText}`;
+					? `${result.question}\n\n📎 ${razdatkaText}`
+					: razdatkaText;
 			}
 		}
 
@@ -168,9 +150,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 		// Add complexity percent to description
 		if (questionData.complexity && questionData.complexity.length > 0) {
-			// Get complexity emoji based on the complexity level used to load the question
-			const complexityEmoji = COMPLEXITY_EMOJI[this.complexity] || "↗️";
-			let complexityText = `[${complexityEmoji}](${this.baseUrl}/question/${questionData.id})`;
+			let complexityText = `[↗️](${this.baseUrl}/question/${questionData.id})`;
 
 			// Add pack complexity if available
 			if (Array.isArray(packData?.trueDl) && packData.trueDl.length > 0) {
@@ -178,9 +158,6 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 					packData.trueDl.reduce((a, b) => a + b) / packData.trueDl.length
 				).toFixed(1);
 				complexityText += ` Cложность *${packComplexity}*`;
-
-				// Include Pack TrueDL into return output
-				result.trueDl = packComplexity;
 			}
 
 			const questionComplexity = (
