@@ -3,7 +3,7 @@
  */
 
 const { escapeMarkdownV2 } = require("../../utils/markdown");
-
+const { COMPLEXITY_EMOJI } = require("../../bot/constants");
 class BaseQuestionLoader {
 	/**
 	 * Format question for Telegram message
@@ -15,7 +15,7 @@ class BaseQuestionLoader {
 	 * @param {boolean} [split=false] - If true, returns question and answer/description separately
 	 * @returns {{question: string, answer: string}} - Object with formatted question and answer texts
 	 */
-	formatForTelegram(questionData, split = false, spoiler = true) {
+	formatForTelegram(questionData, split = false, complexity) {
 		const parts = {
 			question: "",
 			answer: "",
@@ -24,20 +24,25 @@ class BaseQuestionLoader {
 		// Format question section
 		if (questionData.question) {
 			const prefix = questionData.link ? `[❓](${questionData.link})` : "❓";
-			parts.question = `${prefix} *Вопрос:*\n${escapeMarkdownV2(questionData.question)}`;
+			parts.question = `${prefix} *Вопрос ${questionData.number}*`;
+			if (questionData.trueDl) {
+				const complexityEmoji = COMPLEXITY_EMOJI[complexity] || "↗️";
+				parts.question += ` • Cложность: *${escapeMarkdownV2(String(questionData.trueDl))}* ${complexityEmoji}`
+			}
+			
+			parts.question += `\n${escapeMarkdownV2(questionData.question)}`;
 		}
 
 		// Format answer and description
 		const answerParts = [];
-		const s = `${spoiler ? "||" : ""}`;
 
 		if (questionData.answer) {
-			answerParts.push(`✅ *Ответ:*\n${s}${escapeMarkdownV2(questionData.answer)}${s}`);
+			answerParts.push(`✅ *Ответ:*\n${escapeMarkdownV2(questionData.answer)}`);
 		}
 
 		if (questionData.description) {
 			answerParts.push(
-				`💬 *Комментарий:*\n${s}${escapeMarkdownV2(questionData.description)}${s}`
+				`💬 *Комментарий:*\n${escapeMarkdownV2(questionData.description)}`
 			);
 		}
 
