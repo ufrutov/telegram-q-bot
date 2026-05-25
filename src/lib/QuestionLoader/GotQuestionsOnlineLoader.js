@@ -132,8 +132,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			const razdatkaText = questionData.razdatkaText.trim();
 			if (razdatkaText) {
 				result.question = result.question
-					? `${result.question}\n\n📎 ${razdatkaText}`
-					: razdatkaText;
+					? `${result.question}\n> ${razdatkaText}` // > Block quote using Markdown
+					: `> ${razdatkaText}`;
 			}
 		}
 
