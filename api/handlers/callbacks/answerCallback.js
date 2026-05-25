@@ -14,6 +14,9 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 	}
 
 	try {
+		// Acknowledge callback first to remove button loading state
+		await bot.answerCallbackQuery(callbackQuery.id);
+
 		// Get answer from Redis
 		const answerDataStr = redis ? await redis.get(answerKey) : null;
 		

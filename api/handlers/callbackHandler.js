@@ -45,6 +45,9 @@ module.exports = async function callbackHandler(bot, redis, callbackQuery) {
 	} else if (parsed.action === 'pack') {
 		// Handle "Играть весь пакет" button - reuses /pack command infrastructure
 		try {
+			// Acknowledge callback first to prevent "query too old" errors
+			await bot.answerCallbackQuery(callbackQuery.id);
+
 			// Remove button from answer message (one-time use)
 			try {
 				await bot.editMessageReplyMarkup(
@@ -52,21 +55,13 @@ module.exports = async function callbackHandler(bot, redis, callbackQuery) {
 					{ chat_id: chatId, message_id: callbackQuery.message.message_id }
 				);
 			} catch (editError) {
-				console.error('Error removing pack button:', editError);
-				// Continue even if edit fails (message might be too old)
+				// Ignore "message is not modified" — button was already removed
 			}
 
 			// Load and send pack using existing service
 			await sendPackMessage(bot, redis, chatId, parsed.packId, threadId);
-
-			// Acknowledge callback
-			await bot.answerCallbackQuery(callbackQuery.id);
 		} catch (error) {
 			console.error('Error loading pack from answer button:', error);
-			await bot.answerCallbackQuery(callbackQuery.id, {
-				text: '❌ Ошибка при загрузке пакета',
-				show_alert: true,
-			});
 		}
 	} else if (parsed.answerKey) {
 		await answerCallback(bot, redis, callbackQuery, parsed, threadId);
