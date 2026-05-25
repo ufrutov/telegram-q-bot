@@ -55,11 +55,10 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 		}
 		
 		// Format pack info message
-		const { displayedQuestions, questionsCaption } = getDisplayedPackQuestions(packData.questions);
-		const packInfoText = formatPackInfo(packData, questionsCaption);
+		const packInfoText = formatPackInfo(packData);
 		
 		// Build inline keyboard (6 questions per row)
-		const keyboard = buildPackKeyboard(displayedQuestions);
+		const keyboard = buildPackKeyboard(packData.questions);
 		
 		// Delete loading message
 		try {
@@ -101,38 +100,13 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 }
 
 /**
- * Applies UI question limit for pack keyboard and builds the caption text.
- *
- * Behavior:
- * - If total questions exceed the configured limit, only first N are returned
- *   and caption is "N/total".
- * - Otherwise all questions are returned and caption is "total".
- *
- * @param {Array<{id: string|number}>} questions - Full pack questions list
- * @returns {{displayedQuestions: Array<{id: string|number}>, questionsCaption: string}}
- */
-function getDisplayedPackQuestions(questions) {
-	const totalQuestions = questions.length;
-	const hasQuestionLimit = totalQuestions > PACK_MAX_QUESTIONS_TO_SHOW;
-	const displayedQuestions = hasQuestionLimit
-		? questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW)
-		: questions;
-	const questionsCaption = hasQuestionLimit
-		? `${PACK_MAX_QUESTIONS_TO_SHOW}/${totalQuestions}`
-		: `${totalQuestions}`;
-
-	return { displayedQuestions, questionsCaption };
-}
-
-/**
  * Format pack information message with MarkdownV2
  *
- * @param {{id: string|number, title: string, pubDate?: string, trueDl?: number[], questions: Array}} packData - Pack metadata and questions
- * @param {string|null} [questionsCaption=null] - Optional precomputed question count text (e.g. "36/52")
+	 * @param {{id: string|number, title: string, pubDate?: string, trueDl?: number[], total?: number, questions: Array}} packData - Pack metadata, capped questions, and total pack size
  * @returns {string} Formatted MarkdownV2 message body
  */
-function formatPackInfo(packData, questionsCaption = null) {
-	const { id, title, pubDate, trueDl, questions } = packData;
+function formatPackInfo(packData) {
+	const { id, title, pubDate, trueDl, total, questions } = packData;
 	const baseUrl = TARGET_DOMAIN;
 	
 	// Calculate average complexity from trueDl array
@@ -159,7 +133,10 @@ function formatPackInfo(packData, questionsCaption = null) {
 	}
 	
 	message += `⚡ Сложность: *${escapedComplexity}*\n`;
-	const questionCountText = questionsCaption || String(questions.length);
+	const totalQuestions = total || questions.length;
+	const questionCountText = totalQuestions > questions.length
+		? `${questions.length}/${totalQuestions}`
+		: String(questions.length);
 	message += `📊 Вопросов: *${escapeMarkdownV2(questionCountText)}*\n\n`;
 	message += `**Выберите вопрос:**`;
 	

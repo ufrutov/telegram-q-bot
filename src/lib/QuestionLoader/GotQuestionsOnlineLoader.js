@@ -1,7 +1,7 @@
 const BaseQuestionLoader = require("./BaseQuestionLoader");
 const { formatDate } = require("../../utils/date");
 const { escapeMarkdownV2 } = require("../../utils/markdown");
-const { COMPLEXITY_EMOJI } = require("../../bot/constants");
+const { COMPLEXITY_EMOJI, PACK_MAX_QUESTIONS_TO_SHOW } = require("../../bot/constants");
 
 /**
  * TrueDL complexity ranges mapping
@@ -57,7 +57,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	/**
 	 * Load Questions Pack data from API
 	 * @param {number|string} packId - Pack ID to load
-	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, and trueDl fields, or null if not found
+	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, trueDl,
+	 * total questions count, and capped questions list, or null if not found
 	 */
 	async loadPackData(packId) {
 		if (!packId) {
@@ -84,13 +85,16 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				}
 			}
 
+			const total = questions.length;
+
 			// Return pack data including questions array
 			return {
 				id: packData.id,
 				pubDate: packData.pubDate,
 				title: packData.title,
 				trueDl: packData.trueDl,
-				questions: questions,
+				total,
+				questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW),
 			};
 		} catch (error) {
 			console.warn(`Failed to load pack ${packId}: ${error.message}`);
