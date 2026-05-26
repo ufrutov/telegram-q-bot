@@ -24,7 +24,7 @@ class BaseQuestionLoader {
 		// Format question section
 		if (questionData.question) {
 			const prefix = questionData.link ? `[❓](${questionData.link})` : "❓";
-			parts.question = `${prefix} *Вопрос ${questionData.number}*`;
+			parts.question = `${prefix} *Вопрос ${questionData.number + 1}*`;
 			if (questionData.trueDl) {
 				const complexityEmoji = COMPLEXITY_EMOJI[complexity] || "↗️";
 				parts.question += ` • Cложность: *${escapeMarkdownV2(String(questionData.trueDl))}* ${complexityEmoji}`

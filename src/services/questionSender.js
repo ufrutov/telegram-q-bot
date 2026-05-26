@@ -86,7 +86,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 					inline_keyboard: [
 						[
 							{
-								text: "📖 Показать ответ",
+								text: "📖 Ответ",
 								callback_data: JSON.stringify({ answerKey }),
 							},
 							{
@@ -135,7 +135,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 			inline_keyboard: [
 				[
 					{
-						text: "📖 Показать ответ",
+						text: "📖 Ответ",
 						callback_data: JSON.stringify({ answerKey }),
 					},
 					{

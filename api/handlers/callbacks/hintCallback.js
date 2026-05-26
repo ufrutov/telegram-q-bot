@@ -39,7 +39,7 @@ module.exports = async function hintCallback(bot, redis, callbackQuery, parsed, 
 		// Remove hint button from keyboard (keep answer button)
 		try {
 			const answerKeyMatch = callbackQuery.message.reply_markup?.inline_keyboard?.[0]?.find(
-				(btn) => btn.text === '📖 Показать ответ'
+				(btn) => btn.text === '📖 Ответ'
 			);
 			const newKeyboard = answerKeyMatch
 				? { inline_keyboard: [[answerKeyMatch]] }
