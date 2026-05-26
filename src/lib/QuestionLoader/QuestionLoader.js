@@ -1,5 +1,5 @@
-const ChgkInfoQuestionLoader = require("./ChgkInfoQuestionLoader");
-const GotQuestionsOnlineLoader = require("./GotQuestionsOnlineLoader");
+const ChgkInfoQuestionLoader = require('./ChgkInfoQuestionLoader');
+const GotQuestionsOnlineLoader = require('./GotQuestionsOnlineLoader');
 
 /**
  * QuestionLoader - Factory class for creating question loaders based on target
@@ -7,17 +7,17 @@ const GotQuestionsOnlineLoader = require("./GotQuestionsOnlineLoader");
  * @param {string} [complexity="random"] - The complexity level (random, easy, medium, hard)
  * @returns {BaseQuestionLoader} - An instance of the appropriate question loader
  */
-function QuestionLoader(target = "gotquestions.online", complexity = "random") {
+function QuestionLoader(target = 'gotquestions.online', complexity = 'random') {
 	const loaderMap = {
-		"questions.chgk.info": ChgkInfoQuestionLoader,
-		"gotquestions.online": GotQuestionsOnlineLoader,
+		'questions.chgk.info': ChgkInfoQuestionLoader,
+		'gotquestions.online': GotQuestionsOnlineLoader,
 	};
 
 	const LoaderClass = loaderMap[target];
 
 	if (!LoaderClass) {
 		throw new Error(
-			`Unknown target: ${target}. Available targets: ${Object.keys(loaderMap).join(", ")}`
+			`Unknown target: ${target}. Available targets: ${Object.keys(loaderMap).join(', ')}`,
 		);
 	}
 

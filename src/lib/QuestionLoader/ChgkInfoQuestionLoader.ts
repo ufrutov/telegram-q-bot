@@ -1,10 +1,15 @@
-const BaseQuestionLoader = require('./BaseQuestionLoader');
+import { BaseQuestionLoader } from './BaseQuestionLoader';
+import { QuestionData, QuestionLoaderOptions } from '@app-types/question';
+import { QuestionSource } from './QuestionLoader';
+import { Complexity } from '@app-types/question';
 
 /**
  * ChgkInfoQuestionLoader - Loads questions from questions.chgk.info
  */
-class ChgkInfoQuestionLoader extends BaseQuestionLoader {
-	constructor() {
+export class ChgkInfoQuestionLoader extends BaseQuestionLoader {
+	private baseUrl: string;
+
+	constructor(_target: QuestionSource = 'questions.chgk.info', _complexity: Complexity = 'random') {
 		super();
 		this.baseUrl =
 			'http://questions.chgk.info/cgi-bin/db.cgi?qnum=1&text=0&type=chgk&type=brain&type=igp&type=game&type=ehruditka&type=beskrylka&Get=Get+random+questions&rand=yes';
@@ -12,21 +17,17 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 
 	/**
 	 * Decode KOI8-R encoded buffer to string
-	 * @param {ArrayBuffer} buffer - The raw buffer to decode
-	 * @returns {string} - Decoded string
 	 */
-	decodeKOI8R(buffer) {
+	private decodeKOI8R(buffer: ArrayBuffer): string {
 		const decoder = new TextDecoder('koi8-r');
 		return decoder.decode(buffer);
 	}
 
 	/**
 	 * Extract image URLs from HTML content
-	 * @param {string} content - HTML content to parse
-	 * @returns {string[]} - Array of image URLs
 	 */
-	extractImages(content) {
-		const images = [];
+	private extractImages(content: string): string[] {
+		const images: string[] = [];
 		const imgRegex = /<p><img src="(.*?)">/g;
 		let imgMatch;
 
@@ -43,11 +44,11 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 
 	/**
 	 * Clean HTML content and remove tags
-	 * @param {string} content - HTML content to clean
-	 * @param {Object} options - Cleaning options
-	 * @returns {string} - Cleaned text
 	 */
-	cleanContent(content, options = {}) {
+	private cleanContent(
+		content: string,
+		options: { removeImages?: boolean; stopAtP?: boolean } = {},
+	): string {
 		let cleaned = content;
 
 		// Remove images if specified
@@ -80,21 +81,20 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 
 	/**
 	 * Parse question section from content
-	 * @param {string} content - HTML content
-	 * @param {Object} result - Result object to populate
 	 */
-	parseQuestion(content, result) {
+	private parseQuestion(
+		content: string,
+		result: Partial<QuestionData> & { questionImages: string[] },
+	): void {
 		const images = this.extractImages(content);
-		result.questionPreview.push(...images);
+		result.questionImages.push(...images);
 		result.question = this.cleanContent(content, { removeImages: true });
 	}
 
 	/**
 	 * Parse answer section from content
-	 * @param {string} content - HTML content
-	 * @param {Object} result - Result object to populate
 	 */
-	parseAnswer(content, result) {
+	private parseAnswer(content: string, result: Partial<QuestionData>): void {
 		const cleaned = this.cleanContent(content, { stopAtP: true });
 		// Remove any remaining < or > characters that weren't part of HTML tags
 		result.answer = cleaned.replace(/[<>]/g, '');
@@ -102,10 +102,8 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 
 	/**
 	 * Parse description/commentary section from content
-	 * @param {string} content - HTML content
-	 * @param {Object} result - Result object to populate
 	 */
-	parseDescription(content, result) {
+	private parseDescription(content: string, result: Partial<QuestionData>): void {
 		const cleaned = this.cleanContent(content, { stopAtP: true });
 		// Remove any remaining < or > characters that weren't part of HTML tags
 		result.description = cleaned.replace(/[<>]/g, '');
@@ -113,14 +111,15 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 
 	/**
 	 * Process matched strong tags and extract question data
-	 * @param {string} html - Full HTML content
-	 * @param {Array} strongMatches - Array of regex matches
-	 * @param {Object} result - Result object to populate
 	 */
-	processMatches(html, strongMatches, result) {
+	private processMatches(
+		html: string,
+		strongMatches: RegExpMatchArray[],
+		result: Partial<QuestionData> & { questionImages: string[] },
+	): void {
 		strongMatches.forEach((match, i) => {
 			const strongText = match[1];
-			const strongIndex = match.index + match[0].length;
+			const strongIndex = match.index! + match[0].length;
 			const nextIndex = strongMatches[i + 1]?.index ?? html.length;
 			const content = html.substring(strongIndex, nextIndex);
 
@@ -136,11 +135,10 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 
 	/**
 	 * Clean up empty fields from result
-	 * @param {Object} result - Result object to clean
 	 */
-	cleanupResult(result) {
-		if (result.questionPreview.length === 0) {
-			delete result.questionPreview;
+	private cleanupResult(result: Partial<QuestionData> & { questionImages?: string[] }): void {
+		if (result.questionImages && result.questionImages.length === 0) {
+			delete result.questionImages;
 		}
 		if (!result.description) {
 			delete result.description;
@@ -149,14 +147,14 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 
 	/**
 	 * Load a random question from questions.chgk.info
-	 * @returns {Promise<Object>} - Question object with question, answer, description, and questionPreview fields
 	 */
-	async loadQuestion() {
-		const result = {
-			question: null,
-			answer: null,
-			description: null,
-			questionPreview: [],
+	async loadQuestion(_options?: QuestionLoaderOptions): Promise<QuestionData> {
+		const result: Partial<QuestionData> & { questionImages: string[] } = {
+			question: '',
+			answer: '',
+			description: undefined,
+			questionImages: [],
+			number: 0,
 		};
 
 		try {
@@ -180,11 +178,10 @@ class ChgkInfoQuestionLoader extends BaseQuestionLoader {
 			// Cleanup result
 			this.cleanupResult(result);
 
-			return result;
+			return result as QuestionData;
 		} catch (error) {
-			throw new Error(`Failed to load question: ${error.message}`);
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			throw new Error(`Failed to load question: ${errorMessage}`);
 		}
 	}
 }
-
-module.exports = ChgkInfoQuestionLoader;

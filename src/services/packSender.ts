@@ -1,57 +1,68 @@
 /**
  * Pack Sender Service - Handles pack loading, formatting, and message sending
  */
-const QuestionLoader = require('../lib/QuestionLoader/QuestionLoader');
-const { escapeMarkdownV2 } = require('../utils/markdown');
-const { formatDate } = require('../utils/date');
-const {
-	TARGET_DOMAIN,
-	PACK_MAX_QUESTIONS_TO_SHOW,
-	PACK_QUESTIONS_PER_ROW,
-} = require('../bot/constants');
+
+import TelegramBot from 'node-telegram-bot-api';
+import { RedisClientType } from 'redis';
+import { createQuestionLoader } from '@lib/QuestionLoader/QuestionLoader';
+import { escapeMarkdownV2 } from '@utils/markdown';
+import { formatDate } from '@utils/date';
+import { getThreadOptions } from '@utils/redis';
+import { TARGET_DOMAIN, PACK_QUESTIONS_PER_ROW } from '@bot/constants';
+
+interface PackData {
+	id: string;
+	title: string;
+	pubDate?: string;
+	trueDl?: number[];
+	total: number;
+	questions: Array<{ id: string; number: number }>;
+}
 
 /**
  * Sends a pack info message with inline keyboard for question selection
- *
- * @param {TelegramBot} bot - Telegram bot instance
- * @param {RedisClientType} redis - Redis client
- * @param {string|number} chatId - Target chat ID
- * @param {string} [packId] - Specific pack ID, or null to load random
- * @param {number} [threadId] - Telegram forum topic thread ID
  */
-async function sendPackMessage(bot, redis, chatId, packId = null, threadId = undefined) {
-	const threadOpts = threadId ? { message_thread_id: threadId } : {};
+export async function sendPackMessage(
+	bot: TelegramBot,
+	_redis: RedisClientType | null,
+	chatId: number | string,
+	packId: string | null = null,
+	threadId?: number,
+): Promise<void> {
+	const threadOpts = getThreadOptions(threadId);
 
 	// Send loading message
 	const loadingMsg = await bot.sendMessage(chatId, '🔄 Загружаю пакет...', threadOpts);
 
 	try {
 		// Load pack data
-		let packData;
+		let packData: PackData;
 
 		if (packId) {
 			// Load specific pack by ID
-			const questionLoader = QuestionLoader(TARGET_DOMAIN, 'random');
-			packData = await questionLoader.loadPackData(packId);
+			const questionLoader = createQuestionLoader(TARGET_DOMAIN, 'random') as any;
+			const loadedPack = await questionLoader.loadPackData(packId);
 
-			if (!packData || !packData.questions || packData.questions.length === 0) {
+			if (!loadedPack || !loadedPack.questions || loadedPack.questions.length === 0) {
 				throw new Error('Pack not found or has no questions');
 			}
+			packData = loadedPack as PackData;
 		} else {
 			// Load random question first, then get its pack
-			const questionLoader = QuestionLoader(TARGET_DOMAIN, 'random');
+			const questionLoader = createQuestionLoader(TARGET_DOMAIN, 'random') as any;
 			const questionData = await questionLoader.loadQuestion();
 
-			if (!questionData || !questionData.packId) {
+			if (!questionData || !questionData.pack?.id) {
 				throw new Error('Failed to load random question or pack ID not found');
 			}
 
 			// Load the full pack
-			packData = await questionLoader.loadPackData(questionData.packId);
+			const loadedPack = await questionLoader.loadPackData(questionData.pack.id);
 
-			if (!packData || !packData.questions || packData.questions.length === 0) {
+			if (!loadedPack || !loadedPack.questions || loadedPack.questions.length === 0) {
 				throw new Error('Failed to load pack data');
 			}
+			packData = loadedPack as PackData;
 		}
 
 		// Format pack info message
@@ -99,11 +110,8 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 
 /**
  * Format pack information message with MarkdownV2
- *
- * @param {{id: string|number, title: string, pubDate?: string, trueDl?: number[], total?: number, questions: Array}} packData - Pack metadata, capped questions, and total pack size
- * @returns {string} Formatted MarkdownV2 message body
  */
-function formatPackInfo(packData) {
+function formatPackInfo(packData: PackData): string {
 	const { id, title, pubDate, trueDl, total, questions } = packData;
 	const baseUrl = TARGET_DOMAIN;
 
@@ -121,7 +129,7 @@ function formatPackInfo(packData) {
 	const escapedComplexity = escapeMarkdownV2(avgComplexity);
 
 	// Format date
-	const formattedDate = formatDate(pubDate);
+	const formattedDate = formatDate(pubDate || '');
 
 	// Build message with pack info
 	let message = `Пакет: [*${escapedTitle}*](https://${baseUrl}/pack/${id}/)\n`;
@@ -144,12 +152,11 @@ function formatPackInfo(packData) {
 
 /**
  * Build inline keyboard with question numbers (6 per row)
- *
- * @param {Array<{id: string|number}>} questions - Questions to show as keyboard buttons
- * @returns {{inline_keyboard: Array<Array<{text: string, callback_data: string}>>}} Telegram inline keyboard payload
  */
-function buildPackKeyboard(questions) {
-	const buttons = [];
+function buildPackKeyboard(
+	questions: Array<{ id: string; number: number }>,
+): TelegramBot.InlineKeyboardMarkup {
+	const buttons: TelegramBot.InlineKeyboardButton[] = [];
 	const questionsPerRow = PACK_QUESTIONS_PER_ROW;
 
 	// Create button for each question
@@ -167,12 +174,10 @@ function buildPackKeyboard(questions) {
 	}
 
 	// Group buttons into rows of 6
-	const rows = [];
+	const rows: TelegramBot.InlineKeyboardButton[][] = [];
 	for (let i = 0; i < buttons.length; i += questionsPerRow) {
 		rows.push(buttons.slice(i, i + questionsPerRow));
 	}
 
 	return { inline_keyboard: rows };
 }
-
-module.exports = { sendPackMessage };

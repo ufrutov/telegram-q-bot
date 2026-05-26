@@ -2,21 +2,25 @@
  * BaseQuestionLoader - Abstract base class for question loaders
  */
 
-const { escapeMarkdownV2 } = require('../../utils/markdown');
-const { COMPLEXITY_EMOJI } = require('../../bot/constants');
-class BaseQuestionLoader {
+import { escapeMarkdownV2 } from '@utils/markdown';
+import { COMPLEXITY_EMOJI } from '@bot/constants';
+import {
+	QuestionData,
+	FormattedQuestion,
+	Complexity,
+	QuestionLoaderOptions,
+} from '@app-types/question';
+
+export abstract class BaseQuestionLoader {
 	/**
 	 * Format question for Telegram message
-	 * @param {Object} questionData - Question data object
-	 * @param {string} questionData.question - The question text
-	 * @param {string} [questionData.answer] - The answer text
-	 * @param {string} [questionData.description] - The description/commentary text
-	 * @param {string[]} [questionData.preview] - Array of image URLs
-	 * @param {boolean} [split=false] - If true, returns question and answer/description separately
-	 * @returns {{question: string, answer: string}} - Object with formatted question and answer texts
 	 */
-	formatForTelegram(questionData, split = false, complexity) {
-		const parts = {
+	formatForTelegram(
+		questionData: QuestionData,
+		split: boolean = false,
+		complexity?: Complexity,
+	): FormattedQuestion {
+		const parts: FormattedQuestion = {
 			question: '',
 			answer: '',
 		};
@@ -25,7 +29,8 @@ class BaseQuestionLoader {
 		if (questionData.question) {
 			const prefix = questionData.link ? `[❓](${questionData.link})` : '❓';
 			parts.question = `${prefix} *Вопрос ${questionData.number + 1}*`;
-			if (questionData.trueDl) {
+
+			if (questionData.trueDl && complexity) {
 				const complexityEmoji = COMPLEXITY_EMOJI[complexity] || '↗️';
 				parts.question += ` • Cложность: *${escapeMarkdownV2(String(questionData.trueDl))}* ${complexityEmoji}`;
 			}
@@ -34,7 +39,7 @@ class BaseQuestionLoader {
 		}
 
 		// Format answer and description
-		const answerParts = [];
+		const answerParts: string[] = [];
 
 		if (questionData.answer) {
 			answerParts.push(`✅ *Ответ:*\n${escapeMarkdownV2(questionData.answer)}`);
@@ -64,12 +69,7 @@ class BaseQuestionLoader {
 	}
 
 	/**
-	 * Load a random question - must be implemented by subclasses
-	 * @returns {Promise<Object>} - Question object with question, answer, description, and preview fields
+	 * Load a question - must be implemented by subclasses
 	 */
-	async loadQuestion() {
-		throw new Error('loadQuestion() must be implemented by subclass');
-	}
+	abstract loadQuestion(options?: QuestionLoaderOptions): Promise<QuestionData>;
 }
-
-module.exports = BaseQuestionLoader;

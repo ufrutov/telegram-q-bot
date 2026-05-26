@@ -2,13 +2,18 @@
  * Markdown utilities for Telegram MarkdownV2 formatting
  */
 
-function escapeMarkdownV2(text) {
+/**
+ * Escape special characters for Telegram MarkdownV2
+ * Preserves markdown links in format [text](url)
+ */
+export function escapeMarkdownV2(text: string): string {
 	if (!text) return text;
+
 	// Preserve Markdown links [text](url) while escaping other special chars.
 	// Replace links with placeholders so their punctuation won't be escaped,
 	// then escape the rest and restore originals.
 	const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-	const placeholders = [];
+	const placeholders: string[] = [];
 	let replaced = text.replace(linkRegex, (match) => {
 		const idx = placeholders.push(match) - 1;
 		return `\u0000MDLINK${idx}\u0000`;
@@ -48,5 +53,3 @@ function escapeMarkdownV2(text) {
 
 	return replaced;
 }
-
-module.exports = { escapeMarkdownV2 };

@@ -2,8 +2,14 @@
   "name": "telegram-q-bot",
   "version": "1.0.15",
   "description": "Telegram Question Bot - A Telegram bot deployed on Vercel",
-  "main": "api/webhook.js",
+  "main": "dist/api/webhook.js",
   "scripts": {
+    "build": "tsc && tsc-alias",
+    "dev": "tsx watch api/webhook.ts",
+    "type-check": "tsc --noEmit",
+    "lint": "oxlint src api",
+    "format": "oxfmt --write src api",
+    "format:check": "oxfmt --check src api",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -21,5 +27,16 @@
     "dotenv": "^17.4.1",
     "node-telegram-bot-api": "^0.66.0",
     "redis": "^5.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/node-telegram-bot-api": "^0.64.14",
+    "@vercel/node": "^5.8.4",
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
+    "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.17",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
   }
 }

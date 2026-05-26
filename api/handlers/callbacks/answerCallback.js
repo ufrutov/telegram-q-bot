@@ -19,7 +19,7 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 
 		// Get answer from Redis
 		const answerDataStr = redis ? await redis.get(answerKey) : null;
-		
+
 		const questionId = answerKey.split(':').at(2);
 		const logChat = threadId ? `${chatId}_${threadId}` : chatId;
 		console.log(`[${logChat}] answer: https://${TARGET_DOMAIN}/question/${questionId}`);
@@ -33,12 +33,16 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 					...threadOpts,
 					parse_mode: 'MarkdownV2',
 					reply_markup: {
-						inline_keyboard: [[{
-							text: `❓ Вопрос ${questionId}`,
-							url: `https://${TARGET_DOMAIN}/question/${questionId}`,
-						}]],
+						inline_keyboard: [
+							[
+								{
+									text: `❓ Вопрос ${questionId}`,
+									url: `https://${TARGET_DOMAIN}/question/${questionId}`,
+								},
+							],
+						],
 					},
-				}
+				},
 			);
 			return;
 		}
@@ -59,11 +63,11 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 					parse_mode: 'MarkdownV2',
 				}),
 			}));
-			
+
 			try {
-				await bot.sendMediaGroup(chatId, media, { 
-					...threadOpts, 
-					reply_to_message_id: messageToReply 
+				await bot.sendMediaGroup(chatId, media, {
+					...threadOpts,
+					reply_to_message_id: messageToReply,
 				});
 			} catch (imgError) {
 				console.error('Error sending answer media group:', imgError);
@@ -76,19 +80,25 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 			}
 		} else {
 			// Build inline keyboard with pack button if packId exists
-			const replyMarkup = packId ? {
-				inline_keyboard: [[{
-					text: '📦 Играть весь пакет',
-					callback_data: JSON.stringify({ action: 'pack', packId })
-				}]]
-			} : undefined;
-			
+			const replyMarkup = packId
+				? {
+						inline_keyboard: [
+							[
+								{
+									text: '📦 Играть весь пакет',
+									callback_data: JSON.stringify({ action: 'pack', packId }),
+								},
+							],
+						],
+					}
+				: undefined;
+
 			await bot.sendMessage(chatId, answer, {
 				...threadOpts,
 				parse_mode: 'MarkdownV2',
 				reply_to_message_id: messageToReply,
 				disable_web_page_preview: true,
-				reply_markup: replyMarkup
+				reply_markup: replyMarkup,
 			});
 		}
 
@@ -96,7 +106,7 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 		try {
 			await bot.editMessageReplyMarkup(
 				{ inline_keyboard: [] },
-				{ chat_id: chatId, message_id: callbackQuery.message.message_id }
+				{ chat_id: chatId, message_id: callbackQuery.message.message_id },
 			);
 		} catch (editError) {
 			console.error('Error removing reply markup:', editError);
@@ -109,7 +119,7 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 			} catch (deleteError) {
 				console.error(
 					'Error deleting separated message after question with media group:',
-					deleteError
+					deleteError,
 				);
 			}
 		}

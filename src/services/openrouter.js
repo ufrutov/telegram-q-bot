@@ -1,4 +1,4 @@
-require("dotenv").config({ path: ".env.local" });
+require('dotenv').config({ path: '.env.local' });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
@@ -47,50 +47,50 @@ OUTPUT FORMAT:
 
 async function generateHint(question, correctAnswer, description, questionPreview = []) {
 	let userContent = [];
-	
+
 	if (questionPreview && questionPreview.length > 0) {
 		userContent.push({
-			type: "text",
+			type: 'text',
 			text: `Question image(s):`,
 		});
 		for (const imageUrl of questionPreview) {
 			userContent.push({
-				type: "image_url",
+				type: 'image_url',
 				image_url: { url: imageUrl },
 			});
 		}
 	}
-	
+
 	userContent.push({
-		type: "text",
+		type: 'text',
 		text: `Question: ${question}\nCorrect Answer: ${correctAnswer}`,
 	});
-	
+
 	if (description) {
 		userContent.push({
-			type: "text",
+			type: 'text',
 			text: `Description: ${description}`,
 		});
 	}
-	
+
 	userContent.push({
-		type: "text",
+		type: 'text',
 		text: `Write a helpful hint in Russian language. Important: Do NOT include the answer in your hint — give only a logical clue.`,
 	});
 
-	const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-		method: "POST",
+	const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-			"Content-Type": "application/json",
-			"HTTP-Referer": "https://telegram-q-bot.vercel.app",
-			"X-Title": "Telegram Q Bot",
+			'Content-Type': 'application/json',
+			'HTTP-Referer': 'https://telegram-q-bot.vercel.app',
+			'X-Title': 'Telegram Q Bot',
 		},
 		body: JSON.stringify({
-			model: "openrouter/auto",
+			model: 'openrouter/auto',
 			messages: [
-				{ role: "system", content: SYSTEM_INSTRUCTION },
-				{ role: "user", content: userContent },
+				{ role: 'system', content: SYSTEM_INSTRUCTION },
+				{ role: 'user', content: userContent },
 			],
 		}),
 	});
@@ -106,16 +106,16 @@ async function generateHint(question, correctAnswer, description, questionPrevie
 }
 
 function formatErrorMessage(error) {
-	if (error.message && (error.message.includes("401") || error.message.includes("API key"))) {
-		return "⚠️ Ошибка API ключа. Проверьте настройки.";
+	if (error.message && (error.message.includes('401') || error.message.includes('API key'))) {
+		return '⚠️ Ошибка API ключа. Проверьте настройки.';
 	}
-	if (error.message && error.message.includes("429")) {
-		return "⏳ Лимит запросов исчерпан. Попробуйте позже.";
+	if (error.message && error.message.includes('429')) {
+		return '⏳ Лимит запросов исчерпан. Попробуйте позже.';
 	}
-	if (error.message && error.message.includes("rate_limit")) {
-		return "⏳ Лимит запросов исчерпан. Попробуйте позже.";
+	if (error.message && error.message.includes('rate_limit')) {
+		return '⏳ Лимит запросов исчерпан. Попробуйте позже.';
 	}
-	return "⚠️ Не удалось создать подсказку. Попробуйте позже.";
+	return '⚠️ Не удалось создать подсказку. Попробуйте позже.';
 }
 
 module.exports = { generateHint, formatErrorMessage };

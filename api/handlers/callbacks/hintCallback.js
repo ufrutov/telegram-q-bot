@@ -28,18 +28,12 @@ module.exports = async function hintCallback(bot, redis, callbackQuery, parsed, 
 		}
 
 		const hintData = JSON.parse(hintDataStr);
-		const {
-			question,
-			answer,
-			description,
-			questionMessageId,
-			questionPreview = [],
-		} = hintData;
+		const { question, answer, description, questionMessageId, questionPreview = [] } = hintData;
 
 		// Remove hint button from keyboard (keep answer button)
 		try {
 			const answerKeyMatch = callbackQuery.message.reply_markup?.inline_keyboard?.[0]?.find(
-				(btn) => btn.text === '📖 Ответ'
+				(btn) => btn.text === '📖 Ответ',
 			);
 			const newKeyboard = answerKeyMatch
 				? { inline_keyboard: [[answerKeyMatch]] }

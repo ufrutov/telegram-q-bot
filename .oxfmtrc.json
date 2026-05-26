@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "useTabs": true,
+  "lineWidth": 120,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "semicolons": "always",
+  "arrowParens": "always",
+  "indentWidth": 2,
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    ".vercel",
+    "**/*.d.ts"
+  ]
+}

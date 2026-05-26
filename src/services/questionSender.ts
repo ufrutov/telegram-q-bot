@@ -4,10 +4,22 @@
  * Used by both webhook and cron endpoints
  */
 
-const QuestionLoader = require('../lib/QuestionLoader/QuestionLoader');
+import TelegramBot from 'node-telegram-bot-api';
+import { RedisClientType } from 'redis';
+import { createQuestionLoader, QuestionSource } from '@lib/QuestionLoader/QuestionLoader';
+import { Complexity } from '@app-types/question';
+import { REDIS_TTL } from '@app-types/redis';
+import { getThreadOptions } from '@utils/redis';
+import { MediaGroupItem } from '@app-types/telegram';
 
 /** Default target questions service */
-const target = 'gotquestions.online';
+const DEFAULT_SOURCE: QuestionSource =
+	(process.env.QUESTION_SOURCE as QuestionSource) || 'gotquestions.online';
+
+interface SendQuestionResult {
+	answerKey: string;
+	questionMessageId: number;
+}
 
 /**
  * Sends a question message to a Telegram chat with answer/hint inline buttons.
@@ -18,45 +30,37 @@ const target = 'gotquestions.online';
  *   - If no images → single text message with inline buttons attached.
  *
  * Redis persistence:
- *   - Stores the answer (with optional answerPreview images) under `answer:{chatId}:{id}`
- *   - Stores hint context (question, answer, description, previews) under `hint:{chatId}:{id}`
- *   - Both keys expire after 24 hours (3600 × 24 sec).
+ *   - Stores the answer (with optional answerImages) under `answer:{chatId}:{id}`
+ *   - Stores hint context (question, answer, description) under `hint:{chatId}:{id}`
+ *   - Both keys expire after 24 hours (REDIS_TTL seconds).
  *
  * Forum topics:
  *   - When `threadId` is provided and the chat is a forum supergroup, all outgoing
  *     messages include `message_thread_id` so they appear inside the correct topic.
- *   - Non-forum chats ignore this field — `threadOpts` resolves to `{}`.
- *
- * @param {TelegramBot} bot - Telegram bot instance
- * @param {import('redis').RedisClientType | undefined} redisClient - Redis client for answer/hint storage
- * @param {string|number} chatId - Target chat ID
- * @param {'random'|'easy'|'medium'|'hard'} complexity - Question difficulty level
- * @param {string} [questionId] - Specific question ID to load (random if omitted)
- * @param {number} [threadId] - Telegram forum topic thread ID (undefined for non-forum chats)
- * @returns {Promise<{answerKey: string, questionMessageId: number}>} Redis key for answer retrieval and the message ID of the question message (used for reply context)
+ *   - Non-forum chats ignore this field.
  */
-async function sendQuestionMessage(
-	bot,
-	redisClient,
-	chatId,
-	complexity = 'random',
-	questionId = undefined,
-	threadId = undefined,
-) {
-	const threadOpts = threadId ? { message_thread_id: threadId } : {};
+export async function sendQuestionMessage(
+	bot: TelegramBot,
+	redisClient: RedisClientType | null,
+	chatId: number | string,
+	complexity: Complexity = 'random',
+	questionId?: string,
+	threadId?: number,
+): Promise<SendQuestionResult> {
+	const threadOpts = getThreadOptions(threadId);
 
 	// Send loading message
 	const loadingMsg = await bot.sendMessage(chatId, '🔄 Загружаю вопрос...', threadOpts);
 
 	// Load question from the question service
-	const questionLoader = QuestionLoader(target, complexity);
-	const questionData = await questionLoader.loadQuestion(questionId);
+	const questionLoader = createQuestionLoader(DEFAULT_SOURCE, complexity);
+	const questionData = await questionLoader.loadQuestion({ complexity, questionId });
 
 	// Format question and answer for Telegram (MarkdownV2)
 	const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
 
 	console.log(
-		`[${chatId}${threadId ? `_${threadId}` : ''}] ${complexity} question: ${questionData.link}`,
+		`[${chatId}${threadId ? `_${threadId}` : ''}] ${complexity} question: ${questionData.link || questionData.id}`,
 	);
 
 	// Delete loading message
@@ -67,24 +71,24 @@ async function sendQuestionMessage(
 	}
 
 	// Generate Redis keys for answer and hint storage
-	const answerKey = `answer:${chatId}:${questionData.id}`;
-	const hintKey = `hint:${chatId}:${questionData.id}`;
+	const answerKey = `answer:${chatId}:${questionData.id || questionData.number}`;
+	const hintKey = `hint:${chatId}:${questionData.id || questionData.number}`;
 
 	// If question has preview images, send as media group
-	if (questionData.questionPreview && questionData.questionPreview.length > 0) {
-		const media = questionData.questionPreview.map((url, index) => ({
+	if (questionData.questionImages && questionData.questionImages.length > 0) {
+		const media: MediaGroupItem[] = questionData.questionImages.map((url, index) => ({
 			type: 'photo',
 			media: url,
 			// Add caption with question text to the first image
 			...(index === 0 && {
 				caption: question,
-				parse_mode: 'MarkdownV2',
+				parse_mode: 'MarkdownV2' as const,
 			}),
 		}));
 
 		try {
 			// Send images as media group
-			const messages = await bot.sendMediaGroup(chatId, media, threadOpts);
+			const messages = await bot.sendMediaGroup(chatId, media, threadOpts as any);
 			const questionMessage = messages[0];
 
 			// Send inline buttons as separate message
@@ -109,25 +113,25 @@ async function sendQuestionMessage(
 
 			// Store answer and hint data in Redis (24h TTL)
 			if (redisClient) {
-				const answerPreview = questionData.answerPreview || [];
+				const answerImages = questionData.answerImages || [];
 				await redisClient.setEx(
 					answerKey,
-					3600 * 24,
+					REDIS_TTL,
 					JSON.stringify({
 						answer,
-						answerPreview,
-						packId: questionData.packId || null,
+						answerImages,
+						packId: questionData.pack?.id || null,
 					}),
 				);
 				await redisClient.setEx(
 					hintKey,
-					3600 * 24,
+					REDIS_TTL,
 					JSON.stringify({
 						question: questionData.question,
 						answer: questionData.answer,
 						description: questionData.description,
 						questionMessageId: questionMessage.message_id,
-						questionPreview: questionData.questionPreview || [],
+						questionImages: questionData.questionImages || [],
 					}),
 				);
 			}
@@ -162,19 +166,19 @@ async function sendQuestionMessage(
 
 	// Store answer and hint data in Redis (24h TTL)
 	if (redisClient) {
-		const answerPreview = questionData.answerPreview || [];
+		const answerImages = questionData.answerImages || [];
 		await redisClient.setEx(
 			answerKey,
-			3600 * 24,
+			REDIS_TTL,
 			JSON.stringify({
 				answer,
-				answerPreview,
-				packId: questionData.packId || null,
+				answerImages,
+				packId: questionData.pack?.id || null,
 			}),
 		);
 		await redisClient.setEx(
 			hintKey,
-			3600 * 24,
+			REDIS_TTL,
 			JSON.stringify({
 				question: questionData.question,
 				answer: questionData.answer,
@@ -186,5 +190,3 @@ async function sendQuestionMessage(
 
 	return { answerKey, questionMessageId: questionMessage.message_id };
 }
-
-module.exports = { sendQuestionMessage };

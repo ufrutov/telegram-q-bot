@@ -1,12 +1,17 @@
 /**
  * Message Handler - Processes text commands
  */
-const { sendQuestionMessage } = require('../../src/services/questionSender');
-const { sendPackMessage } = require('../../src/services/packSender');
-const { MESSAGES } = require('../../src/bot/constants');
+
+import TelegramBot from 'node-telegram-bot-api';
+import { RedisClientType } from 'redis';
+import { sendQuestionMessage } from '@services/questionSender';
+import { sendPackMessage } from '@services/packSender';
+import { getThreadOptions } from '@utils/redis';
+import { MESSAGES } from '@bot/constants';
+import { Complexity } from '@app-types/question';
 
 // Command complexity mapping
-const COMPLEXITY_MAP = {
+const COMPLEXITY_MAP: Record<string, Complexity> = {
 	'/question': 'random',
 	'/questioneasy': 'easy',
 	'/questionmedium': 'medium',
@@ -16,9 +21,15 @@ const COMPLEXITY_MAP = {
 /**
  * Handle /question commands with optional complexity and ID
  */
-async function handleQuestionCommand(bot, redis, chatId, messageText, threadId) {
+async function handleQuestionCommand(
+	bot: TelegramBot,
+	redis: RedisClientType | null,
+	chatId: number,
+	messageText: string,
+	threadId?: number,
+): Promise<void> {
 	const parts = messageText.split(/\s+/);
-	const questionId = parts.length > 1 && /^\d+$/.test(parts[1]) ? parts[1] : null;
+	const questionId = parts.length > 1 && /^\d+$/.test(parts[1]) ? parts[1] : undefined;
 	const complexity = COMPLEXITY_MAP[parts[0]] || 'random';
 
 	await sendQuestionMessage(bot, redis, chatId, complexity, questionId, threadId);
@@ -27,8 +38,12 @@ async function handleQuestionCommand(bot, redis, chatId, messageText, threadId) 
 /**
  * Handle /menu command - show difficulty selection keyboard
  */
-async function handleMenuCommand(bot, chatId, threadId) {
-	const threadOpts = threadId ? { message_thread_id: threadId } : {};
+async function handleMenuCommand(
+	bot: TelegramBot,
+	chatId: number,
+	threadId?: number,
+): Promise<void> {
+	const threadOpts = getThreadOptions(threadId);
 
 	await bot.sendMessage(chatId, MESSAGES.MENU_TITLE, {
 		...threadOpts,
@@ -67,7 +82,13 @@ async function handleMenuCommand(bot, chatId, threadId) {
 /**
  * Handle /pack command with optional pack ID
  */
-async function handlePackCommand(bot, redis, chatId, messageText, threadId) {
+async function handlePackCommand(
+	bot: TelegramBot,
+	redis: RedisClientType | null,
+	chatId: number,
+	messageText: string,
+	threadId?: number,
+): Promise<void> {
 	const parts = messageText.split(/\s+/);
 	const packId = parts.length > 1 && /^\d+$/.test(parts[1]) ? parts[1] : null;
 
@@ -77,7 +98,11 @@ async function handlePackCommand(bot, redis, chatId, messageText, threadId) {
 /**
  * Main message handler
  */
-module.exports = async function messageHandler(bot, redis, message) {
+export async function handleMessage(
+	bot: TelegramBot,
+	redis: RedisClientType | null,
+	message: TelegramBot.Message,
+): Promise<void> {
 	const chatId = message.chat?.id;
 	const messageText = message.text;
 	const threadId = message.message_thread_id;
@@ -100,4 +125,4 @@ module.exports = async function messageHandler(bot, redis, message) {
 	} catch (error) {
 		console.error('Error handling message:', error);
 	}
-};
+}

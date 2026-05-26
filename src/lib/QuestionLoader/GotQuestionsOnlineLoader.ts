@@ -1,25 +1,70 @@
-const BaseQuestionLoader = require('./BaseQuestionLoader');
-const { formatDate } = require('../../utils/date');
-const { escapeMarkdownV2 } = require('../../utils/markdown');
-const { COMPLEXITY_EMOJI, PACK_MAX_QUESTIONS_TO_SHOW } = require('../../bot/constants');
+import { BaseQuestionLoader } from './BaseQuestionLoader';
+import { formatDate } from '@utils/date';
+import { escapeMarkdownV2 } from '@utils/markdown';
+import { COMPLEXITY_EMOJI, PACK_MAX_QUESTIONS_TO_SHOW } from '@bot/constants';
+import {
+	QuestionData,
+	Complexity,
+	ComplexityRange,
+	QuestionLoaderOptions,
+} from '@app-types/question';
+import { QuestionSource } from './QuestionLoader';
 
 /**
  * TrueDL complexity ranges mapping
  * Based on https://pecheny.me/blog/truedl/
  */
-const COMPLEXITY_RANGES = {
+const COMPLEXITY_RANGES: Record<Complexity, ComplexityRange> = {
 	random: { min: 0.1, max: 4.5, pages: 500 }, // Random easy questions
 	easy: { min: 0.1, max: 3.5, pages: 500 }, // School/beginner tournaments
 	medium: { min: 3.5, max: 6.5, pages: 500 }, // Standard tournaments
 	hard: { min: 6.5, max: 10, pages: 200 }, // Expert level
 };
 
+interface ApiQuestion {
+	id: string;
+	packId?: string;
+	number: number;
+	text?: string;
+	razdatkaText?: string;
+	razdatkaPic?: string;
+	answer?: string;
+	zachet?: string;
+	comment?: string;
+	complexity?: number[];
+	answerPic?: string;
+	commentPic?: string;
+}
+
+interface ApiPackData {
+	id: string;
+	pubDate: string;
+	title: string;
+	trueDl?: number[];
+	tours?: Array<{
+		questions?: ApiQuestion[];
+	}>;
+}
+
+interface PackData {
+	id: string;
+	pubDate: string;
+	title: string;
+	trueDl?: number[];
+	total: number;
+	questions: ApiQuestion[];
+}
+
 /**
  * GotQuestionsOnlineLoader - Loads questions from gotquestions.online
- * @extends BaseQuestionLoader
  */
-class GotQuestionsOnlineLoader extends BaseQuestionLoader {
-	constructor(target = 'gotquestions.online', complexity = 'random') {
+export class GotQuestionsOnlineLoader extends BaseQuestionLoader {
+	private baseUrl: string;
+	private apiUrl: string;
+	private pages: number;
+	private complexity: Complexity;
+
+	constructor(target: QuestionSource = 'gotquestions.online', complexity: Complexity = 'random') {
 		super();
 		const range = COMPLEXITY_RANGES[complexity] || COMPLEXITY_RANGES.medium;
 		const params = new URLSearchParams({
@@ -38,11 +83,9 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 	/**
 	 * Extract image URLs from razdatka fields
-	 * @param {string} razdatkaPic - URL of razdatka picture
-	 * @returns {string[]} - Array of image URLs
 	 */
-	extractImages(razdatkaPic) {
-		const images = [];
+	private extractImages(razdatkaPic: string): string[] {
+		const images: string[] = [];
 		if (razdatkaPic) {
 			// Ensure full URL
 			let imgSrc = razdatkaPic;
@@ -56,11 +99,8 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 	/**
 	 * Load Questions Pack data from API
-	 * @param {number|string} packId - Pack ID to load
-	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, trueDl,
-	 * total questions count, and capped questions list, or null if not found
 	 */
-	async loadPackData(packId) {
+	async loadPackData(packId: string | number): Promise<PackData | null> {
 		if (!packId) {
 			return null;
 		}
@@ -73,10 +113,10 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				throw new Error(`HTTP error! status: ${response.status}`);
 			}
 
-			const packData = await response.json();
+			const packData = (await response.json()) as ApiPackData;
 
 			// Collect all questions from all tours
-			const questions = [];
+			const questions: ApiQuestion[] = [];
 			if (packData.tours && Array.isArray(packData.tours)) {
 				for (const tour of packData.tours) {
 					if (tour.questions && Array.isArray(tour.questions)) {
@@ -97,28 +137,29 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW),
 			};
 		} catch (error) {
-			console.warn(`Failed to load pack ${packId}: ${error.message}`);
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			console.warn(`Failed to load pack ${packId}: ${errorMessage}`);
 			return null;
 		}
 	}
 
 	/**
 	 * Parse question data from API response
-	 * @param {Object} questionData - Raw question object from API
-	 * @param {string} questionLink - Link to the question
-	 * @param {Object} [packData] - Optional pack data object
-	 * @returns {Object} - Parsed question object
 	 */
-	parseQuestionData(questionData, questionLink, packData = null) {
-		const result = {
+	private parseQuestionData(
+		questionData: ApiQuestion,
+		questionLink: string,
+		packData: PackData | null = null,
+	): QuestionData {
+		const result: QuestionData = {
 			id: questionData.id,
-			packId: questionData.packId || null,
+			packId: questionData.packId || undefined,
 			number: questionData.number,
-			question: null,
-			answer: null,
-			description: null,
-			questionPreview: [],
-			answerPreview: [],
+			question: '',
+			answer: '',
+			description: undefined,
+			questionImages: [],
+			answerImages: [],
 			link: questionLink,
 		};
 
@@ -140,7 +181,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 		// Extract preview images from razdatkaPic (question images)
 		if (questionData.razdatkaPic) {
 			const images = this.extractImages(questionData.razdatkaPic);
-			result.questionPreview.push(...images);
+			result.questionImages!.push(...images);
 		}
 
 		// Parse answer
@@ -149,7 +190,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 		}
 
 		// Add zachet (accepted answer) to description
-		const descriptionParts = [];
+		const descriptionParts: string[] = [];
 
 		if (questionData.zachet) {
 			const zachet = questionData.zachet.trim();
@@ -175,16 +216,16 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			// Add pack complexity if available
 			if (Array.isArray(packData?.trueDl) && packData.trueDl.length > 0) {
 				const packComplexity = (
-					packData.trueDl.reduce((a, b) => a + b) / packData.trueDl.length
+					packData.trueDl.reduce((a, b) => a + b, 0) / packData.trueDl.length
 				).toFixed(1);
 				complexityText += ` Cложность *${packComplexity}*`;
 
 				// Include Pack TrueDL into return output
-				result.trueDl = packComplexity;
+				result.trueDl = parseFloat(packComplexity);
 			}
 
 			const questionComplexity = (
-				questionData.complexity.reduce((a, b) => a + b) / questionData.complexity.length
+				questionData.complexity.reduce((a, b) => a + b, 0) / questionData.complexity.length
 			).toFixed(1);
 
 			complexityText += ` • *${questionComplexity}%* верных ответов`;
@@ -205,24 +246,33 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 		// Add answerPic to answer preview if present
 		if (questionData.answerPic) {
 			const answerImages = this.extractImages(questionData.answerPic);
-			result.answerPreview.push(...answerImages);
+			result.answerImages!.push(...answerImages);
 		}
 
 		// Add commentPic to answer preview if present
 		if (questionData.commentPic) {
 			const commentImages = this.extractImages(questionData.commentPic);
-			result.answerPreview.push(...commentImages);
+			result.answerImages!.push(...commentImages);
 		}
 
 		// Clean up empty fields
-		if (result.questionPreview.length === 0) {
-			delete result.questionPreview;
+		if (result.questionImages!.length === 0) {
+			delete result.questionImages;
 		}
-		if (result.answerPreview.length === 0) {
-			delete result.answerPreview;
+		if (result.answerImages!.length === 0) {
+			delete result.answerImages;
 		}
 		if (!result.description) {
 			delete result.description;
+		}
+
+		// Add pack info if available
+		if (packData) {
+			result.pack = {
+				id: packData.id,
+				name: packData.title,
+				url: `${this.baseUrl}/pack/${packData.id}/`,
+			};
 		}
 
 		return result;
@@ -230,14 +280,10 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 	/**
 	 * Load a question from gotquestions.online
-	 * If `questionId` is provided, loads that specific question directly.
-	 * Otherwise loads a random question from the search API.
-	 * @param {number|string} [questionId] - Optional question id to load directly
-	 * @returns {Promise<Object>} - Question object with question, answer, description, questionPreview, and answerPreview fields
 	 */
-	async loadQuestion(questionId = undefined) {
+	async loadQuestion(options?: QuestionLoaderOptions): Promise<QuestionData> {
+		const questionId = options?.questionId;
 		const maxAttempts = 3;
-		let lastError = null;
 
 		// If a specific question id is provided, fetch it directly and return
 		if (questionId != null) {
@@ -247,18 +293,19 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				if (!response.ok) {
 					throw new Error(`HTTP error! status: ${response.status}`);
 				}
-				const questionData = await response.json();
+				const questionData = (await response.json()) as ApiQuestion;
 				const questionLink = `${this.baseUrl}/question/${questionData.id}`;
 
 				// Load pack data if packId is available
-				let packData = null;
+				let packData: PackData | null = null;
 				if (questionData.packId) {
 					packData = await this.loadPackData(questionData.packId);
 				}
 
 				return this.parseQuestionData(questionData, questionLink, packData);
 			} catch (error) {
-				throw new Error(`Failed to load question ${questionId}: ${error.message}`);
+				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+				throw new Error(`Failed to load question ${questionId}: ${errorMessage}`);
 			}
 		}
 
@@ -274,7 +321,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 					throw new Error(`HTTP error! status: ${response.status}`);
 				}
 
-				const data = await response.json();
+				const data = (await response.json()) as { questions?: ApiQuestion[] };
 
 				// Check if we have questions
 				if (!data.questions || data.questions.length === 0) {
@@ -287,7 +334,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				const questionLink = `${this.baseUrl}/question/${questionData.id}`;
 
 				// Load pack data if packId is available
-				let packData = null;
+				let packData: PackData | null = null;
 				if (questionData.packId) {
 					packData = await this.loadPackData(questionData.packId);
 				}
@@ -295,15 +342,16 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				// Parse and return the question
 				return this.parseQuestionData(questionData, questionLink, packData);
 			} catch (error) {
-				lastError = error;
 				if (attempt < maxAttempts) {
-					console.warn(`Attempt ${attempt} failed: ${error.message}. Retrying...`);
+					const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+					console.warn(`Attempt ${attempt} failed: ${errorMessage}. Retrying...`);
 					continue;
 				}
-				throw new Error(`Failed to load question after ${maxAttempts} attempts: ${error.message}`);
+				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+				throw new Error(`Failed to load question after ${maxAttempts} attempts: ${errorMessage}`);
 			}
 		}
+
+		throw new Error('Failed to load question');
 	}
 }
-
-module.exports = GotQuestionsOnlineLoader;

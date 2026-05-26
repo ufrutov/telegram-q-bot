@@ -11,7 +11,7 @@ module.exports = async function questionCallback(bot, redis, callbackQuery, pars
 	try {
 		await bot.answerCallbackQuery(callbackQuery.id);
 		await sendQuestionMessage(bot, redis, chatId, complexity, undefined, threadId);
-		
+
 		// Delete the menu message after selection
 		try {
 			await bot.deleteMessage(chatId, callbackQuery.message.message_id);

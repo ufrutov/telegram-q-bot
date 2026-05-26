@@ -52,7 +52,7 @@ module.exports = async function callbackHandler(bot, redis, callbackQuery) {
 			try {
 				await bot.editMessageReplyMarkup(
 					{ inline_keyboard: [] },
-					{ chat_id: chatId, message_id: callbackQuery.message.message_id }
+					{ chat_id: chatId, message_id: callbackQuery.message.message_id },
 				);
 			} catch (editError) {
 				// Ignore "message is not modified" — button was already removed

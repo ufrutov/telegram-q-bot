@@ -1,0 +1,37 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "commonjs",
+		"lib": ["ES2022"],
+		"outDir": "./dist",
+		"rootDir": ".",
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["src/*"],
+			"@bot/*": ["src/bot/*"],
+			"@lib/*": ["src/lib/*"],
+			"@services/*": ["src/services/*"],
+			"@utils/*": ["src/utils/*"],
+			"@app-types/*": ["src/types/*"],
+			"@api/*": ["api/*"]
+		},
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"moduleResolution": "bundler",
+		"allowSyntheticDefaultImports": true,
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
+		"removeComments": false,
+		"ignoreDeprecations": "6.0"
+	},
+  "include": ["src/**/*", "api/**/*"],
+  "exclude": ["node_modules", "dist", ".vercel", "**/*.test.ts", "**/test/**"]
+}

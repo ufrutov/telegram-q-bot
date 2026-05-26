@@ -30,3 +30,7 @@ Thumbs.db
 *.swo
 .env*.local
 src/lib/QuestionLoader/test/mock/
+
+# TypeScript
+dist/
+*.tsbuildinfo

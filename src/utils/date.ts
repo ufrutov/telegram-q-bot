@@ -19,10 +19,10 @@ const MONTHS_RU = [
 
 /**
  * Format date string to Russian format
- * @param {string} dateString - Date string in ISO format (e.g., "2025-06-15T20:15:33.384604" or "2025-06-15T14:00:00")
- * @returns {string} - Formatted date (e.g., "15 июня 2025")
+ * @param dateString - Date string in ISO format (e.g., "2025-06-15T20:15:33.384604" or "2025-06-15T14:00:00")
+ * @returns Formatted date (e.g., "15 июня 2025")
  */
-function formatDate(dateString) {
+export function formatDate(dateString: string): string {
 	if (!dateString) {
 		return '';
 	}
@@ -45,9 +45,8 @@ function formatDate(dateString) {
 
 		return `${day} ${MONTHS_RU[month - 1]} ${year}`;
 	} catch (error) {
-		console.warn(`Failed to format date ${dateString}: ${error.message}`);
+		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+		console.warn(`Failed to format date ${dateString}: ${errorMessage}`);
 		return '';
 	}
 }
-
-module.exports = { formatDate };

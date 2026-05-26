@@ -1,0 +1,8 @@
+{
+	"categories": {
+		"correctness": "warn",
+		"suspicious": "warn",
+		"pedantic": "off",
+		"perf": "warn"
+	}
+}
