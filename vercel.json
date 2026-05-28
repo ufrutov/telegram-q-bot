@@ -1,9 +1,6 @@
 {
-	"git": {
-		"deploymentEnabled": false
-	},
 	"functions": {
-		"api/**/*.ts": {
+		"api/**/*.js": {
 			"runtime": "nodejs24.x"
 		}
 	},

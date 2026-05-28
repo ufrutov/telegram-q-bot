@@ -38,8 +38,14 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
-      - name: Pull Vercel Environment Information
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Deploy to Vercel
-        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build project
+        run: npm run build
+
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }} --cwd=dist
+
+      - name: Deploy to Vercel from dist folder
+        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --cwd=dist
