@@ -22,9 +22,9 @@
   ],
   "author": "",
   "license": "ISC",
-  "engines": {
-    "node": ">=24.x"
-  },
+	"engines": {
+		"node": "22.x"
+	},
   "dependencies": {
     "dotenv": "^17.4.1",
     "node-telegram-bot-api": "^0.67.0",
