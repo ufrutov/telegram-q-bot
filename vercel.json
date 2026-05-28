@@ -1,8 +1,5 @@
 {
-	"buildCommand": "npm run build",
 	"outputDirectory": "dist",
-	"installCommand": "npm install",
-	"framework": null,
 	"crons": [
 		{
 			"path": "/api/cron/daily-question",
