@@ -4,7 +4,7 @@
   "description": "Telegram Question Bot - A Telegram bot deployed on Vercel",
   "main": "dist/api/webhook.js",
 	"scripts": {
-		"build": "tsc && tsc-alias && cp vercel.json package.json dist/",
+		"build": "tsc && tsc-alias",
 		"dev": "tsx watch api/webhook.ts",
 		"type-check": "tsc --noEmit",
 		"lint": "oxlint src api",

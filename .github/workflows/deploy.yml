@@ -35,17 +35,16 @@ jobs:
           git diff --staged --quiet || git commit -m "chore: bump version to ${VERSION}"
           git push
 
-      - name: Install Vercel CLI
-        run: npm install -g vercel@latest
-
       - name: Install dependencies
         run: npm install
 
       - name: Build project
         run: npm run build
 
-      - name: Pull Vercel Environment Information
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }} --cwd=dist
-
-      - name: Deploy to Vercel from dist folder
-        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --cwd=dist
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v42.2.0
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: --prod
