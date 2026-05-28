@@ -1,11 +1,16 @@
 {
-  "git": {
-    "deploymentEnabled": false
-  },
-  "crons": [
-    {
-      "path": "/api/cron/daily-question",
-      "schedule": "0 9 * * *"
-    }
-  ]
+	"git": {
+		"deploymentEnabled": false
+	},
+	"functions": {
+		"api/**/*.ts": {
+			"runtime": "nodejs24.x"
+		}
+	},
+	"crons": [
+		{
+			"path": "/api/cron/daily-question",
+			"schedule": "0 9 * * *"
+		}
+	]
 }
