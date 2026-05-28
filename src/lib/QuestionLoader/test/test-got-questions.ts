@@ -1,14 +1,14 @@
-require('dotenv').config({ path: '../../../.env.local' });
+import 'dotenv/config';
+import { createQuestionLoader } from '../QuestionLoader';
+import { generateHint, formatErrorMessage } from '@services/openrouter';
+import { Complexity } from '@app-types/question';
 
-const QuestionLoader = require('../QuestionLoader');
-const { generateHint, formatErrorMessage } = require('../../../services/openrouter');
-
-async function testComplexity(complexity) {
+async function testComplexity(complexity: Complexity) {
 	console.log(`\n${'='.repeat(80)}`);
 	console.log(`Testing complexity: ${complexity.toUpperCase()}`);
 	console.log('='.repeat(80));
 
-	const loader = QuestionLoader('gotquestions.online', complexity);
+	const loader = createQuestionLoader('gotquestions.online', { complexity });
 
 	try {
 		const question = await loader.loadQuestion();
@@ -26,7 +26,7 @@ async function testComplexity(complexity) {
 				console.log(hint);
 			} catch (hintError) {
 				console.log('\n💡 Hint:');
-				console.log(formatErrorMessage(hintError));
+				console.log(formatErrorMessage(hintError as Error));
 			}
 		}
 
@@ -49,14 +49,14 @@ async function testComplexity(complexity) {
 			});
 		}
 	} catch (error) {
-		console.error(`✗ Failed:`, error.message);
+		console.error(`✗ Failed:`, (error as Error).message);
 	}
 }
 
 async function testGotQuestionsOnline() {
 	console.log('Testing GotQuestionsOnlineLoader with 4 complexity ranges...\n');
 
-	const complexities = ['random', 'easy', 'medium', 'hard'];
+	const complexities: Complexity[] = ['random', 'easy', 'medium', 'hard'];
 
 	for (const complexity of complexities) {
 		await testComplexity(complexity);

@@ -3,15 +3,17 @@
   "version": "1.0.15",
   "description": "Telegram Question Bot - A Telegram bot deployed on Vercel",
   "main": "dist/api/webhook.js",
-  "scripts": {
-    "build": "tsc && tsc-alias",
-    "dev": "tsx watch api/webhook.ts",
-    "type-check": "tsc --noEmit",
-    "lint": "oxlint src api",
-    "format": "oxfmt --write src api",
-    "format:check": "oxfmt --check src api",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+	"scripts": {
+		"build": "tsc && tsc-alias",
+		"dev": "tsx watch api/webhook.ts",
+		"type-check": "tsc --noEmit",
+		"lint": "oxlint src api",
+		"format": "oxfmt --write src api",
+		"format:check": "oxfmt --check src api",
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"test:loaders": "tsx src/lib/QuestionLoader/test/test-loaders.ts",
+		"test:got-questions": "tsx src/lib/QuestionLoader/test/test-got-questions.ts"
+	},
   "keywords": [
     "telegram",
     "bot",
