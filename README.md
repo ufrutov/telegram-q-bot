@@ -2,6 +2,8 @@
 
 Telegram Question Bot ("Что? Где? Когда?") — deployed on Vercel as serverless functions.
 
+Built with **TypeScript** for type safety, maintainability, and modern development experience.
+
 ## Features
 
 - **Random questions** — `/question` or `/menu` to pick by difficulty (easy/medium/hard)
@@ -11,47 +13,75 @@ Telegram Question Bot ("Что? Где? Когда?") — deployed on Vercel as 
 - **Forum topics** — fully supports Telegram supergroups with forum topics
 - **Multi-source** — questions from `gotquestions.online` (primary) and `questions.chgk.info` (fallback)
 
+## Tech Stack
+
+- **TypeScript** — Full type safety with strict mode
+- **Node.js 24+** — Latest LTS runtime
+- **Path Aliases** — Clean imports (`@bot/*`, `@services/*`, etc.)
+- **Oxlint** — Fast Rust-based linter
+- **Oxfmt** — Fast Rust-based formatter (Prettier-compatible)
+- **Vercel** — Serverless deployment
+- **Redis** — Session storage for answers/hints
+
 ## Project Structure
 
 ```
 telegram-q-bot/
 ├── api/
-│   ├── webhook.js               # Main webhook entry point (routes updates)
+│   ├── webhook.ts               # Main webhook entry point (routes updates)
 │   ├── handlers/
-│   │   ├── messageHandler.js   # Text command processor (/question, /menu, /pack)
-│   │   ├── callbackHandler.js  # Button press router
+│   │   ├── messageHandler.ts   # Text command processor (/question, /menu, /pack)
+│   │   ├── callbackHandler.ts  # Button press router
 │   │   └── callbacks/
-│   │       ├── questionCallback.js      # Menu selection handler
-│   │       ├── answerCallback.js        # Answer reveal handler
-│   │       ├── hintCallback.js          # AI hint generator
-│   │       └── packQuestionCallback.js  # Pack question selection handler
+│   │       ├── questionCallback.ts      # Menu selection handler
+│   │       ├── answerCallback.ts        # Answer reveal handler
+│   │       ├── hintCallback.ts          # AI hint generator
+│   │       └── packQuestionCallback.ts  # Pack question selection handler
 │   └── cron/
-│       └── daily-question.js    # Scheduled question sender
+│       └── daily-question.ts    # Scheduled question sender
 ├── src/
+│   ├── types/                   # TypeScript type definitions
+│   │   ├── question.ts          # Question data types
+│   │   ├── telegram.ts          # Telegram bot types
+│   │   ├── redis.ts             # Redis client types
+│   │   └── env.ts               # Environment variable types
 │   ├── bot/
-│   │   ├── botClient.js         # Bot & Redis initialization
-│   │   └── constants.js         # Centralized UI messages
+│   │   ├── botClient.ts         # Bot & Redis initialization
+│   │   └── constants.ts         # Centralized UI messages
 │   ├── services/
-│   │   ├── questionSender.js    # Question loading & sending
-│   │   ├── packSender.js        # Pack loading & keyboard generation
-│   │   └── openrouter.js        # AI hint generation via OpenRouter
+│   │   ├── questionSender.ts    # Question loading & sending
+│   │   ├── packSender.ts        # Pack loading & keyboard generation
+│   │   └── openrouter.ts        # AI hint generation via OpenRouter
 │   ├── utils/
-│   │   ├── markdown.js          # Telegram MarkdownV2 escaping
-│   │   └── date.js              # Russian date formatting
+│   │   ├── markdown.ts          # Telegram MarkdownV2 escaping
+│   │   ├── date.ts              # Russian date formatting
+│   │   └── redis.ts             # Redis connection helpers
 │   └── lib/
 │       └── QuestionLoader/      # Question source loaders (factory pattern)
-│           ├── QuestionLoader.js
-│           ├── BaseQuestionLoader.js
-│           ├── GotQuestionsOnlineLoader.js
-│           └── ChgkInfoQuestionLoader.js
+│           ├── QuestionLoader.ts
+│           ├── BaseQuestionLoader.ts
+│           ├── GotQuestionsOnlineLoader.ts
+│           ├── ChgkInfoQuestionLoader.ts
+│           └── test/            # Manual test scripts
+│               ├── test-loaders.ts
+│               └── test-got-questions.ts
+├── dist/                        # Compiled JavaScript (git-ignored)
+├── tsconfig.json                # TypeScript configuration
+├── .oxlintrc.json               # Linter configuration
+├── .oxfmtrc.json                # Formatter configuration
+├── .nvmrc                       # Node.js version (24)
 ├── package.json
 ├── vercel.json
-├── .github/workflows/
-│   └── deploy.yml
 └── README.md
 ```
 
 ## Setup
+
+### Requirements
+
+- **Node.js 24+** (LTS recommended)
+- **npm** or **yarn**
+- Telegram bot token from [@BotFather](https://t.me/botfather)
 
 ### 1. Install Dependencies
 
@@ -67,7 +97,7 @@ npm install
 
 ### 3. Configure Environment Variables
 
-Add variables in your Vercel project (**Settings → Environment Variables**):
+Create a `.env` file locally (for development) or add variables in Vercel project (**Settings → Environment Variables**):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -77,7 +107,34 @@ Add variables in your Vercel project (**Settings → Environment Variables**):
 | `OPENROUTER_API_KEY` | For hints | OpenRouter API key for AI-generated hints |
 | `CRON_SECRET` | No | Optional secret for manual cron invocations |
 
-### 4. Deploy to Vercel
+See `.env.example` for a template.
+
+### 4. Development
+
+Build and run locally:
+
+```bash
+# Build TypeScript to JavaScript
+npm run build
+
+# Run in development mode with watch
+npm run dev
+
+# Type checking
+npm run type-check
+
+# Lint code
+npm run lint
+
+# Format code
+npm run format
+
+# Test question loaders
+npm run test:loaders
+npm run test:got-questions
+```
+
+### 5. Deploy to Vercel
 
 #### Option A: Using GitHub Actions (Recommended)
 
@@ -103,7 +160,7 @@ vercel --prod
 2. Import the repository in Vercel Dashboard
 3. Vercel auto-deploys on each push
 
-### 5. Set Webhook URL
+### 6. Set Webhook URL
 
 ```bash
 curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://your-domain.vercel.app/api/webhook"
@@ -149,6 +206,46 @@ Bot: [Синхронный турнир «Кубок Владимира Бурд
 ```
 
 Clicking any number loads that specific question with answer/hint buttons.
+
+## TypeScript & Code Quality
+
+### Path Aliases
+
+The project uses path aliases to avoid deep relative imports:
+
+```typescript
+// Instead of: import { bot } from '../../../bot/botClient'
+import { bot } from '@bot/botClient';
+import { sendQuestion } from '@services/questionSender';
+import { Complexity } from '@app-types/question';
+```
+
+Available aliases:
+- `@bot/*` → `src/bot/*`
+- `@lib/*` → `src/lib/*`
+- `@services/*` → `src/services/*`
+- `@utils/*` → `src/utils/*`
+- `@app-types/*` → `src/types/*`
+- `@api/*` → `api/*`
+
+### Build Process
+
+TypeScript is compiled to JavaScript with `tsc`, then `tsc-alias` resolves path aliases:
+
+```bash
+npm run build  # → dist/ directory
+```
+
+The `dist/` directory contains:
+- Compiled JavaScript (`.js`)
+- Type declarations (`.d.ts`)
+- Source maps (`.js.map`)
+
+### Code Quality Tools
+
+- **Oxlint** — Fast linter (Rust-based) for correctness and performance checks
+- **Oxfmt** — Fast formatter (Prettier-compatible) with tabs, 120 line width, single quotes
+- **TypeScript strict mode** — Full type safety with null checks and strict function types
 
 ## API Routes
 
