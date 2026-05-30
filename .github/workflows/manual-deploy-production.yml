@@ -28,10 +28,19 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Create Vercel project config
+      - name: Prepare deploy directory
         run: |
-          mkdir -p .vercel
-          cat > .vercel/project.json << 'EOF'
+          rm -rf deploy
+          cp -r dist deploy/dist
+          cp package.json vercel.json deploy/
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('deploy/vercel.json', 'utf8'));
+            delete p.buildCommand;
+            fs.writeFileSync('deploy/vercel.json', JSON.stringify(p, null, '\t') + '\n');
+          "
+          mkdir -p deploy/.vercel
+          cat > deploy/.vercel/project.json << 'EOF'
           {
             "projectId": "${{ secrets.VERCEL_PROJECT_ID }}",
             "orgId": "${{ secrets.VERCEL_ORG_ID }}"
@@ -40,3 +49,4 @@ jobs:
 
       - name: Deploy to Vercel
         run: npx vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: ./deploy
