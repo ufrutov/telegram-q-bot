@@ -8,43 +8,40 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: master
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Bump version
-        if: "!contains(github.event.head_commit.message, 'bump version')"
-        run: |
-          npm version patch --no-git-tag-version
-          VERSION=$(node -p 'require("./package.json").version')
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add package.json
-          git diff --staged --quiet || git commit -m "chore: bump version to ${VERSION}"
-          git push
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
 
+      - name: Type check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
       - name: Build project
         run: npm run build
 
+      - name: Create Vercel project config
+        run: |
+          mkdir -p .vercel
+          cat > .vercel/project.json << 'EOF'
+          {
+            "projectId": "${{ secrets.VERCEL_PROJECT_ID }}",
+            "orgId": "${{ secrets.VERCEL_ORG_ID }}"
+          }
+          EOF
+
       - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v42.2.0
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: --prod --yes
+        run: |
+          npx vercel pull --yes --token=${{ secrets.VERCEL_TOKEN }}
+          npx vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}

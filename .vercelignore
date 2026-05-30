@@ -1,0 +1,10 @@
+/api
+/src
+/tsconfig.json
+/.gitignore
+/.git
+/node_modules
+/*.md
+/.nvmrc
+/.oxfmtrc.json
+/.oxlintrc.json

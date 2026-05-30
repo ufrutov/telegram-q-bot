@@ -32,5 +32,5 @@ Thumbs.db
 src/lib/QuestionLoader/test/mock/
 
 # TypeScript
-dist/
+/dist
 *.tsbuildinfo
