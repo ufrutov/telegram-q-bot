@@ -43,8 +43,8 @@ jobs:
             "installCommand": "npm install",
             "framework": null,
             "functions": {
-              "api/webhook.js": { "runtime": "@vercel/node@5" },
-              "api/cron/daily-question.js": { "runtime": "@vercel/node@5" }
+              "api/webhook.js": { "runtime": "nodejs22.x" },
+              "api/cron/daily-question.js": { "runtime": "nodejs22.x" }
             },
             "crons": [
               {
