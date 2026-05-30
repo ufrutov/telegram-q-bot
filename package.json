@@ -4,7 +4,7 @@
   "description": "Telegram Question Bot - A Telegram bot deployed on Vercel",
   "main": "dist/api/webhook.js",
 	"scripts": {
-		"build": "tsc && tsc-alias",
+		"build": "tsc && tsc-alias && rm -rf dist/src dist/api/handlers && find dist -type f \\( -name '*.d.ts' -o -name '*.d.ts.map' -o -name '*.js.map' \\) -delete",
 		"dev": "tsx watch api/webhook.ts",
 		"type-check": "tsc --noEmit",
 		"lint": "oxlint src api",
