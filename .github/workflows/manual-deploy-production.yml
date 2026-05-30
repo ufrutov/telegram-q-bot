@@ -40,6 +40,10 @@ jobs:
             "outputDirectory": "dist",
             "installCommand": "npm install",
             "framework": null,
+            "functions": {
+              "api/webhook.js": { "runtime": "@vercel/node@5" },
+              "api/cron/daily-question.js": { "runtime": "@vercel/node@5" }
+            },
             "crons": [
               {
                 "path": "/api/cron/daily-question",
