@@ -35,13 +35,21 @@ jobs:
           rm -rf deploy
           mkdir -p deploy
           cp -r dist deploy/dist
-          cp package.json vercel.json deploy/
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('deploy/vercel.json', 'utf8'));
-            delete p.buildCommand;
-            fs.writeFileSync('deploy/vercel.json', JSON.stringify(p, null, '\t') + '\n');
-          "
+          cp package.json deploy/
+          cat > deploy/vercel.json << 'EOF'
+          {
+            "buildCommand": "",
+            "outputDirectory": "dist",
+            "installCommand": "npm install",
+            "framework": null,
+            "crons": [
+              {
+                "path": "/api/cron/daily-question",
+                "schedule": "0 9 * * *"
+              }
+            ]
+          }
+          EOF
           mkdir -p deploy/.vercel
           cat > deploy/.vercel/project.json << 'EOF'
           {
