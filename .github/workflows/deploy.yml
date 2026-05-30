@@ -30,9 +30,6 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Disable Vercel build command (prebuilt)
-        run: node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('vercel.json','utf8')); delete p.buildCommand; fs.writeFileSync('vercel.json', JSON.stringify(p, null, '\t')+'\n')"
-
       - name: Create Vercel project config
         run: |
           mkdir -p .vercel
