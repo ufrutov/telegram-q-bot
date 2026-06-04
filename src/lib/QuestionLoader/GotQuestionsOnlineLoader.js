@@ -34,6 +34,29 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 		this.apiUrl = `${this.baseUrl}/api/search/?${params}`;
 		this.pages = range.pages;
 		this.complexity = complexity;
+		this.maxRetries = 3;
+	}
+
+	/**
+	 * Calculate delay before next retry attempt (exponential backoff)
+	 * @param {number} attempt - Current attempt number (1-based)
+	 * @returns {number} - Delay in milliseconds
+	 */
+	_getRetryDelay(attempt) {
+		return Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+	}
+
+	/**
+	 * Check if error is a client-side HTTP error (4xx)
+	 * Client errors are not retryable — they will never succeed on retry
+	 * @param {Error} error - Error object with message
+	 * @returns {boolean} - True if the error is a 4xx HTTP error
+	 */
+	_isClientError(error) {
+		const match = error.message.match(/^HTTP error! status: (\d+)/);
+		if (!match) return false;
+		const status = parseInt(match[1], 10);
+		return status >= 400 && status < 500;
 	}
 
 	/**
@@ -56,6 +79,12 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
 	/**
 	 * Load Questions Pack data from API
+	 * 
+	 * Authentication:
+	 * - Uses JWT token for API authentication (required since 2026-06-04)
+	 * - Token format: `Authorization: JWT <token>`
+	 * - Current token valid until: 2026-07-04 16:33:10 UTC
+	 * 
 	 * @param {number|string} packId - Pack ID to load
 	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, trueDl,
 	 * total questions count, and capped questions list, or null if not found
@@ -66,8 +95,15 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 		}
 
 		try {
+			// JWT token for API authentication
+			// Issued: 2026-06-04 16:33:10 UTC
+			// Expires: 2026-07-04 16:33:10 UTC (exp: 1780594390)
+			// User: cvdf34@gmail.com
+			const jwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgwNTk0MzkwLCJpYXQiOjE3ODA1OTA3OTAsImp0aSI6IjlmMzQ4MzBlNWJiYjRmMTRiNmE0OTE0NGFlOTUzNWVkIiwidXNlcl9lbWFpbCI6ImN2ZGYzNEBnbWFpbC5jb20ifQ.9pxrPvMURM7a2ZtT2lUnuAR56zX52zOWS7TH2vxRSNQ";
+			const headers = { 'Authorization': `JWT ${jwtToken}` };
+
 			const url = `${this.baseUrl}/api/pack/${packId}/`;
-			const response = await fetch(url);
+			const response = await fetch(url, { headers });
 
 			if (!response.ok) {
 				throw new Error(`HTTP error! status: ${response.status}`);
@@ -232,18 +268,37 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	 * Load a question from gotquestions.online
 	 * If `questionId` is provided, loads that specific question directly.
 	 * Otherwise loads a random question from the search API.
+	 * 
+	 * Authentication:
+	 * - Uses JWT token for API authentication (required since 2026-06-04)
+	 * - Token format: `Authorization: JWT <token>`
+	 * - Current token valid until: 2026-07-04 16:33:10 UTC (expires in ~1 month)
+	 * - TODO: Move token to environment variable or implement auto-refresh
+	 * 
+	 * Retry Logic:
+	 * - Client errors (4xx): No retry, fails immediately
+	 * - Server errors (5xx) or network errors: Retries up to 3 times with exponential backoff
+	 * - Delay between retries: 1s, 2s, 4s (max)
+	 * 
 	 * @param {number|string} [questionId] - Optional question id to load directly
 	 * @returns {Promise<Object>} - Question object with question, answer, description, questionPreview, and answerPreview fields
+	 * @throws {Error} - Throws if question cannot be loaded after retries or on authentication failure
 	 */
 	async loadQuestion(questionId = undefined) {
-		const maxAttempts = 3;
 		let lastError = null;
+
+		// JWT token for API authentication
+		// Issued: 2026-06-04 16:33:10 UTC
+		// Expires: 2026-07-04 16:33:10 UTC (exp: 1780594390)
+		// User: cvdf34@gmail.com
+		const jwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgwNTk0MzkwLCJpYXQiOjE3ODA1OTA3OTAsImp0aSI6IjlmMzQ4MzBlNWJiYjRmMTRiNmE0OTE0NGFlOTUzNWVkIiwidXNlcl9lbWFpbCI6ImN2ZGYzNEBnbWFpbC5jb20ifQ.9pxrPvMURM7a2ZtT2lUnuAR56zX52zOWS7TH2vxRSNQ";
+		const headers = { 'Authorization': `JWT ${jwtToken}` };
 
 		// If a specific question id is provided, fetch it directly and return
 		if (questionId != null) {
 			try {
 				const url = `${this.baseUrl}/api/question/${questionId}/`;
-				const response = await fetch(url);
+				const response = await fetch(url, { headers });
 				if (!response.ok) {
 					throw new Error(`HTTP error! status: ${response.status}`);
 				}
@@ -262,13 +317,12 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			}
 		}
 
-		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+			// Generate random page number between 1 and X (this.pages contains number of available pages)
+			const randomPage = Math.floor(Math.random() * this.pages) + 1;
+			const url = `${this.apiUrl}&page=${randomPage}`;
 			try {
-				// Generate random page number between 1 and X (this.pages contains number of available pages)
-				const randomPage = Math.floor(Math.random() * this.pages) + 1;
-				const url = `${this.apiUrl}&page=${randomPage}`;
-
-				const response = await fetch(url);
+				const response = await fetch(url, { headers });
 
 				if (!response.ok) {
 					throw new Error(`HTTP error! status: ${response.status}`);
@@ -296,11 +350,13 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				return this.parseQuestionData(questionData, questionLink, packData);
 			} catch (error) {
 				lastError = error;
-				if (attempt < maxAttempts) {
-					console.warn(`Attempt ${attempt} failed: ${error.message}. Retrying...`);
-					continue;
+				if (this._isClientError(error) || attempt >= this.maxRetries) {
+					console.error(`Failed to load question after ${attempt} attempt(s): ${error.message} | URL: ${url}`);
+					throw new Error(`Failed to load question after ${attempt} attempt(s): ${error.message}`);
 				}
-				throw new Error(`Failed to load question after ${maxAttempts} attempts: ${error.message}`);
+				const delay = this._getRetryDelay(attempt);
+				console.warn(`Attempt ${attempt} failed: ${error.message} | URL: ${url}. Retrying in ${delay}ms...`);
+				await new Promise(r => setTimeout(r, delay));
 			}
 		}
 	}
