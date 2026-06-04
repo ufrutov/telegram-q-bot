@@ -52,8 +52,11 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 		try {
 			await bot.deleteMessage(chatId, loadingMsg.message_id);
 		} catch { /* ignore */ }
+		// Extract HTTP status code from error message if present
+		const statusMatch = loadError.message.match(/HTTP error! status: (\d+)/);
+		const statusCode = statusMatch ? ` (${statusMatch[1]})` : '';
 		// Notify user about the error
-		await bot.sendMessage(chatId, MESSAGES.ERROR_LOADING_QUESTION, threadOpts);
+		await bot.sendMessage(chatId, `${MESSAGES.ERROR_LOADING_QUESTION}${statusCode}`, threadOpts);
 		throw loadError;
 	}
 	
