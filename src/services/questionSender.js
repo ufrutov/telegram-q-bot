@@ -5,6 +5,7 @@
  */
 
 const QuestionLoader = require("../lib/QuestionLoader/QuestionLoader");
+const { MESSAGES } = require("../bot/constants");
 
 /** Default target questions service */
 const target = "gotquestions.online";
@@ -43,7 +44,18 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 
 	// Load question from the question service
 	const questionLoader = QuestionLoader(target, complexity);
-	const questionData = await questionLoader.loadQuestion(questionId);
+	let questionData;
+	try {
+		questionData = await questionLoader.loadQuestion(questionId);
+	} catch (loadError) {
+		// Delete loading message
+		try {
+			await bot.deleteMessage(chatId, loadingMsg.message_id);
+		} catch { /* ignore */ }
+		// Notify user about the error
+		await bot.sendMessage(chatId, MESSAGES.ERROR_LOADING_QUESTION, threadOpts);
+		throw loadError;
+	}
 	
 	// Format question and answer for Telegram (MarkdownV2)
 	const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
@@ -53,9 +65,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 	// Delete loading message
 	try {
 		await bot.deleteMessage(chatId, loadingMsg.message_id);
-	} catch (dErr) {
-		// ignore if already deleted
-	}
+	} catch { /* ignore */ }
 
 	// Generate Redis keys for answer and hint storage
 	const answerKey = `answer:${chatId}:${questionData.id}`;

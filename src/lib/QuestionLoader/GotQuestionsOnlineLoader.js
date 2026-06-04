@@ -34,6 +34,29 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 		this.apiUrl = `${this.baseUrl}/api/search/?${params}`;
 		this.pages = range.pages;
 		this.complexity = complexity;
+		this.maxRetries = 3;
+	}
+
+	/**
+	 * Calculate delay before next retry attempt (exponential backoff)
+	 * @param {number} attempt - Current attempt number (1-based)
+	 * @returns {number} - Delay in milliseconds
+	 */
+	_getRetryDelay(attempt) {
+		return Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+	}
+
+	/**
+	 * Check if error is a client-side HTTP error (4xx)
+	 * Client errors are not retryable — they will never succeed on retry
+	 * @param {Error} error - Error object with message
+	 * @returns {boolean} - True if the error is a 4xx HTTP error
+	 */
+	_isClientError(error) {
+		const match = error.message.match(/^HTTP error! status: (\d+)/);
+		if (!match) return false;
+		const status = parseInt(match[1], 10);
+		return status >= 400 && status < 500;
 	}
 
 	/**
@@ -236,7 +259,6 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	 * @returns {Promise<Object>} - Question object with question, answer, description, questionPreview, and answerPreview fields
 	 */
 	async loadQuestion(questionId = undefined) {
-		const maxAttempts = 3;
 		let lastError = null;
 
 		// If a specific question id is provided, fetch it directly and return
@@ -262,12 +284,11 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			}
 		}
 
-		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+			// Generate random page number between 1 and X (this.pages contains number of available pages)
+			const randomPage = Math.floor(Math.random() * this.pages) + 1;
+			const url = `${this.apiUrl}&page=${randomPage}`;
 			try {
-				// Generate random page number between 1 and X (this.pages contains number of available pages)
-				const randomPage = Math.floor(Math.random() * this.pages) + 1;
-				const url = `${this.apiUrl}&page=${randomPage}`;
-
 				const response = await fetch(url);
 
 				if (!response.ok) {
@@ -296,11 +317,13 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				return this.parseQuestionData(questionData, questionLink, packData);
 			} catch (error) {
 				lastError = error;
-				if (attempt < maxAttempts) {
-					console.warn(`Attempt ${attempt} failed: ${error.message}. Retrying...`);
-					continue;
+				if (this._isClientError(error) || attempt >= this.maxRetries) {
+					console.error(`Failed to load question after ${attempt} attempt(s): ${error.message} | URL: ${url}`);
+					throw new Error(`Failed to load question after ${attempt} attempt(s): ${error.message}`);
 				}
-				throw new Error(`Failed to load question after ${maxAttempts} attempts: ${error.message}`);
+				const delay = this._getRetryDelay(attempt);
+				console.warn(`Attempt ${attempt} failed: ${error.message} | URL: ${url}. Retrying in ${delay}ms...`);
+				await new Promise(r => setTimeout(r, delay));
 			}
 		}
 	}
