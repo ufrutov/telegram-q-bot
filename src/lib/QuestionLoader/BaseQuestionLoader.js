@@ -25,11 +25,16 @@ class BaseQuestionLoader {
 		if (questionData.question) {
 			const prefix = questionData.link ? `[❓](${questionData.link})` : "❓";
 			parts.question = `${prefix} *Вопрос ${questionData.number}*`;
+
+			if (questionData.id) {
+				parts.question += escapeMarkdownV2(` • #i${questionData.id}`);
+			}
+
 			if (questionData.trueDl) {
 				const complexityEmoji = COMPLEXITY_EMOJI[complexity] || "↗️";
-				parts.question += ` • Cложность: *${escapeMarkdownV2(String(questionData.trueDl))}* ${complexityEmoji}`
+				parts.question += ` • Cложность: *${escapeMarkdownV2(String(questionData.trueDl))}* ${complexityEmoji}`;
 			}
-			
+
 			parts.question += `\n${escapeMarkdownV2(questionData.question)}`;
 		}
 
@@ -41,9 +46,7 @@ class BaseQuestionLoader {
 		}
 
 		if (questionData.description) {
-			answerParts.push(
-				`💬 *Комментарий:*\n${escapeMarkdownV2(questionData.description)}`
-			);
+			answerParts.push(`💬 *Комментарий:*\n${escapeMarkdownV2(questionData.description)}`);
 		}
 
 		const answerText = answerParts.join("\n\n");
