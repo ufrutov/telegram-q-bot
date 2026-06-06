@@ -32,7 +32,7 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 		if (packId) {
 			// Load specific pack by ID
 			const questionLoader = QuestionLoader(TARGET_DOMAIN, 'random');
-			packData = await questionLoader.loadPackData(packId);
+			packData = await questionLoader.loadPackData(packId, redis);
 			
 			if (!packData || !packData.questions || packData.questions.length === 0) {
 				throw new Error('Pack not found or has no questions');
@@ -40,14 +40,14 @@ async function sendPackMessage(bot, redis, chatId, packId = null, threadId = und
 		} else {
 			// Load random question first, then get its pack
 			const questionLoader = QuestionLoader(TARGET_DOMAIN, 'random');
-			const questionData = await questionLoader.loadQuestion();
+			const questionData = await questionLoader.loadQuestion(undefined, redis);
 			
 			if (!questionData || !questionData.packId) {
 				throw new Error('Failed to load random question or pack ID not found');
 			}
 			
 			// Load the full pack
-			packData = await questionLoader.loadPackData(questionData.packId);
+			packData = await questionLoader.loadPackData(questionData.packId, redis);
 			
 			if (!packData || !packData.questions || packData.questions.length === 0) {
 				throw new Error('Failed to load pack data');

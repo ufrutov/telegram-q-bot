@@ -34,6 +34,7 @@ telegram-q-bot/
 │   ├── services/
 │   │   ├── questionSender.js    # Question loading & sending
 │   │   ├── packSender.js        # Pack loading & keyboard generation
+│   │   ├── gotQuestionsAuth.js  # JWT authentication for gotquestions.online
 │   │   └── openrouter.js        # AI hint generation via OpenRouter
 │   ├── utils/
 │   │   ├── markdown.js          # Telegram MarkdownV2 escaping
@@ -72,8 +73,10 @@ Add variables in your Vercel project (**Settings → Environment Variables**):
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token from BotFather |
+| `GOTQUESTIONS_EMAIL` | Yes | Email for gotquestions.online bot account |
+| `GOTQUESTIONS_PASSWORD` | Yes | Password for gotquestions.online bot account |
 | `CRON_TARGET_CHATS` | For cron | Comma-separated chat IDs (`123456` or `123456_42` for forum topics) |
-| `REDIS_URL` | Recommended | Redis connection for answer/hint storage (24h TTL) |
+| `REDIS_URL` | Recommended | Redis connection for answer/hint storage and JWT token caching |
 | `OPENROUTER_API_KEY` | For hints | OpenRouter API key for AI-generated hints |
 | `CRON_SECRET` | No | Optional secret for manual cron invocations |
 
@@ -110,6 +113,16 @@ curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https:
 ```
 
 Replace `<YOUR_BOT_TOKEN>` and the domain with your values.
+
+## Authentication
+
+The bot authenticates with `gotquestions.online` API using JWT tokens via NextAuth:
+
+- **Login flow**: CSRF token → credentials → session cookie → JWT token
+- **Session caching**: Redis stores the session cookie (28d TTL) to minimize logins to ~1/month
+- **JWT caching**: In-memory cache per invocation + Redis (~59min TTL); auto-refreshes on 401
+- **Header format**: `Authorization: JWT <token>` (Bearer prefix is not used by this API)
+- **Graceful degradation**: If Redis is unavailable, falls back to in-memory only
 
 ## Commands
 

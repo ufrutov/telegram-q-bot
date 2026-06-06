@@ -2,6 +2,7 @@ const BaseQuestionLoader = require("./BaseQuestionLoader");
 const { formatDate } = require("../../utils/date");
 const { escapeMarkdownV2 } = require("../../utils/markdown");
 const { COMPLEXITY_EMOJI, PACK_MAX_QUESTIONS_TO_SHOW } = require("../../bot/constants");
+const gotQuestionsAuth = require("../../services/gotQuestionsAuth");
 
 /**
  * TrueDL complexity ranges mapping
@@ -60,6 +61,42 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	}
 
 	/**
+	 * Get authentication headers for API requests
+	 * Obtains JWT token via auth service (login or cache)
+	 * @param {import('redis').RedisClientType} [redis] - Optional Redis client for token caching
+	 * @returns {Promise<Object>} - Headers object with Authorization
+	 */
+	async _getAuthHeaders(redis) {
+		const token = await gotQuestionsAuth.getAccessToken(redis);
+		return { 'Authorization': `JWT ${token}` };
+	}
+
+	/**
+	 * Fetch URL with JWT authentication and automatic token refresh on 401
+	 * On 401: clears cached token, re-authenticates, retries once
+	 * @param {string} url - URL to fetch
+	 * @param {import('redis').RedisClientType} [redis] - Optional Redis client
+	 * @returns {Promise<Response>} - Fetch response
+	 */
+	async _fetchWithAuth(url, redis) {
+		const headers = await this._getAuthHeaders(redis);
+		const response = await fetch(url, { headers });
+
+		if (response.status === 401) {
+			console.warn('[Auth] 401 received, clearing cache and retrying...');
+			await gotQuestionsAuth.clearCachedToken(redis);
+			const newHeaders = await this._getAuthHeaders(redis);
+			const retryResponse = await fetch(url, { headers: newHeaders });
+			if (!retryResponse.ok) {
+				throw new Error(`HTTP error! status: ${retryResponse.status}`);
+			}
+			return retryResponse;
+		}
+
+		return response;
+	}
+
+	/**
 	 * Extract image URLs from razdatka fields
 	 * @param {string} razdatkaPic - URL of razdatka picture
 	 * @returns {string[]} - Array of image URLs
@@ -83,27 +120,21 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	 * Authentication:
 	 * - Uses JWT token for API authentication (required since 2026-06-04)
 	 * - Token format: `Authorization: JWT <token>`
-	 * - Current token valid until: 2026-07-04 16:33:10 UTC
+	 * - Token auto-refreshed on 401 response
 	 * 
 	 * @param {number|string} packId - Pack ID to load
+	 * @param {import('redis').RedisClientType} [redis] - Optional Redis client for token caching
 	 * @returns {Promise<Object|null>} - Pack data object with id, pubDate, title, trueDl,
 	 * total questions count, and capped questions list, or null if not found
 	 */
-	async loadPackData(packId) {
+	async loadPackData(packId, redis = undefined) {
 		if (!packId) {
 			return null;
 		}
 
 		try {
-			// JWT token for API authentication
-			// Issued: 2026-06-04 16:33:10 UTC
-			// Expires: 2026-07-04 16:33:10 UTC (exp: 1780594390)
-			// User: cvdf34@gmail.com
-			const jwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgwNTk0MzkwLCJpYXQiOjE3ODA1OTA3OTAsImp0aSI6IjlmMzQ4MzBlNWJiYjRmMTRiNmE0OTE0NGFlOTUzNWVkIiwidXNlcl9lbWFpbCI6ImN2ZGYzNEBnbWFpbC5jb20ifQ.9pxrPvMURM7a2ZtT2lUnuAR56zX52zOWS7TH2vxRSNQ";
-			const headers = { 'Authorization': `JWT ${jwtToken}` };
-
 			const url = `${this.baseUrl}/api/pack/${packId}/`;
-			const response = await fetch(url, { headers });
+			const response = await this._fetchWithAuth(url, redis);
 
 			if (!response.ok) {
 				throw new Error(`HTTP error! status: ${response.status}`);
@@ -272,33 +303,28 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 	 * Authentication:
 	 * - Uses JWT token for API authentication (required since 2026-06-04)
 	 * - Token format: `Authorization: JWT <token>`
-	 * - Current token valid until: 2026-07-04 16:33:10 UTC (expires in ~1 month)
-	 * - TODO: Move token to environment variable or implement auto-refresh
+	 * - Token obtained via gotQuestionsAuth service (login or cache)
+	 * - On 401 response: Token is auto-refreshed and request retried once
 	 * 
 	 * Retry Logic:
-	 * - Client errors (4xx): No retry, fails immediately
+	 * - Client errors (4xx, except 401): No retry, fails immediately
 	 * - Server errors (5xx) or network errors: Retries up to 3 times with exponential backoff
 	 * - Delay between retries: 1s, 2s, 4s (max)
+	 * - 401 handled: Token refresh + single retry (before the retry loop)
 	 * 
 	 * @param {number|string} [questionId] - Optional question id to load directly
+	 * @param {import('redis').RedisClientType} [redis] - Optional Redis client for token caching
 	 * @returns {Promise<Object>} - Question object with question, answer, description, questionPreview, and answerPreview fields
 	 * @throws {Error} - Throws if question cannot be loaded after retries or on authentication failure
 	 */
-	async loadQuestion(questionId = undefined) {
+	async loadQuestion(questionId = undefined, redis = undefined) {
 		let lastError = null;
-
-		// JWT token for API authentication
-		// Issued: 2026-06-04 16:33:10 UTC
-		// Expires: 2026-07-04 16:33:10 UTC (exp: 1780594390)
-		// User: cvdf34@gmail.com
-		const jwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgwNTk0MzkwLCJpYXQiOjE3ODA1OTA3OTAsImp0aSI6IjlmMzQ4MzBlNWJiYjRmMTRiNmE0OTE0NGFlOTUzNWVkIiwidXNlcl9lbWFpbCI6ImN2ZGYzNEBnbWFpbC5jb20ifQ.9pxrPvMURM7a2ZtT2lUnuAR56zX52zOWS7TH2vxRSNQ";
-		const headers = { 'Authorization': `JWT ${jwtToken}` };
 
 		// If a specific question id is provided, fetch it directly and return
 		if (questionId != null) {
 			try {
 				const url = `${this.baseUrl}/api/question/${questionId}/`;
-				const response = await fetch(url, { headers });
+				const response = await this._fetchWithAuth(url, redis);
 				if (!response.ok) {
 					throw new Error(`HTTP error! status: ${response.status}`);
 				}
@@ -308,7 +334,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				// Load pack data if packId is available
 				let packData = null;
 				if (questionData.packId) {
-					packData = await this.loadPackData(questionData.packId);
+					packData = await this.loadPackData(questionData.packId, redis);
 				}
 
 				return this.parseQuestionData(questionData, questionLink, packData);
@@ -322,12 +348,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 			const randomPage = Math.floor(Math.random() * this.pages) + 1;
 			const url = `${this.apiUrl}&page=${randomPage}`;
 			try {
-				const response = await fetch(url, { headers });
-
-				if (!response.ok) {
-					throw new Error(`HTTP error! status: ${response.status}`);
-				}
-
+				const response = await this._fetchWithAuth(url, redis);
 				const data = await response.json();
 
 				// Check if we have questions
@@ -343,7 +364,7 @@ class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 				// Load pack data if packId is available
 				let packData = null;
 				if (questionData.packId) {
-					packData = await this.loadPackData(questionData.packId);
+					packData = await this.loadPackData(questionData.packId, redis);
 				}
 
 				// Parse and return the question
