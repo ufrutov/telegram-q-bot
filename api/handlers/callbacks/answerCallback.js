@@ -2,6 +2,7 @@
  * Answer Callback Handler - Show answer button
  */
 const { TARGET_DOMAIN } = require('../../../src/bot/constants');
+const { escapeMarkdownV2 } = require('../../../src/utils/markdown');
 
 module.exports = async function answerCallback(bot, redis, callbackQuery, parsed, threadId) {
 	const chatId = callbackQuery.message?.chat?.id;
@@ -28,7 +29,7 @@ module.exports = async function answerCallback(bot, redis, callbackQuery, parsed
 		if (!answerDataStr) {
 			await bot.sendMessage(
 				chatId,
-				'⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️',
+				escapeMarkdownV2('⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️'),
 				{
 					...threadOpts,
 					parse_mode: 'MarkdownV2',
