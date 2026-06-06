@@ -46,7 +46,7 @@ async function sendQuestionMessage(bot, redisClient, chatId, complexity = "rando
 	const questionLoader = QuestionLoader(target, complexity);
 	let questionData;
 	try {
-		questionData = await questionLoader.loadQuestion(questionId);
+		questionData = await questionLoader.loadQuestion(questionId, redisClient);
 	} catch (loadError) {
 		// Delete loading message
 		try {
