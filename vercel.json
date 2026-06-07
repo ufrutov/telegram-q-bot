@@ -1,5 +1,7 @@
 {
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "installCommand": "npm install",
   "framework": null,
   "git": {
     "deploymentEnabled": false
@@ -8,12 +10,6 @@
     {
       "path": "/api/cron/daily-question",
       "schedule": "0 9 * * *"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
     }
   ]
 }
