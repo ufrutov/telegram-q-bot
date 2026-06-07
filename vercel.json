@@ -1,6 +1,5 @@
 {
-  "framework": null,
-  "buildCommand": "npx tsc && npx tsc-alias",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "git": {
     "deploymentEnabled": false
