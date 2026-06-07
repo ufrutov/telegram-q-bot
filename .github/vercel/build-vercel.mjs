@@ -7,11 +7,21 @@
  * paths already rewritten to relative imports) into the Build Output API
  * structure that `vercel deploy --prebuilt` consumes.
  *
+ * Uses @vercel/nft to trace all dependencies (including node_modules)
+ * for each function entry point.
+ *
  * Usage: node .github/vercel/build-vercel.mjs
  */
 
-import { readFile, writeFile, mkdir, copyFile, stat, rm } from "node:fs/promises";
-import { join, dirname, resolve, relative, sep } from "node:path";
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  copyFile,
+  rm,
+} from "node:fs/promises";
+import { join, dirname, relative, resolve, sep } from "node:path";
+import { nodeFileTrace } from "@vercel/nft";
 
 const DIST = "dist";
 const OUTPUT = ".vercel/output";
@@ -23,70 +33,16 @@ const ENTRY_POINTS = [
 
 const RUNTIME = "nodejs22.x";
 
-const IMPORT_RE =
-  /(?:^|\n)\s*(?:import|export)(?:\s+[^"';]*?\s+from)?\s*["']([^"']+)["']|(?:^|\n)\s*import\s*\(["']([^"']+)["']\)/g;
+const projectRoot = resolve(".");
+const distRoot = resolve(DIST);
 
-async function exists(path) {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
+function normalize(p) {
+  return p.split(sep).join("/");
 }
 
-function normalizeSlashes(path) {
-  return path.split(sep).join("/");
-}
-
-async function resolveImport(fromFile, spec) {
-  if (!spec.startsWith(".")) return null;
-
-  const fromDir = dirname(fromFile);
-  const base = resolve(DIST, fromDir, spec);
-
-  const candidates = [
-    base,
-    `${base}.js`,
-    `${base}.mjs`,
-    `${base}.cjs`,
-    `${base}.ts`,
-    `${base}.mts`,
-    join(base, "index.js"),
-    join(base, "index.ts"),
-  ];
-
-  for (const candidate of candidates) {
-    if (await exists(candidate)) {
-      return normalizeSlashes(relative(DIST, candidate));
-    }
-  }
-  return null;
-}
-
-async function trace(file, traced = new Set()) {
-  if (traced.has(file)) return traced;
-  traced.add(file);
-
-  const distPath = join(DIST, file);
-  if (!(await exists(distPath))) return traced;
-
-  const content = await readFile(distPath, "utf-8");
-  const mapFile = file.endsWith(".js") ? `${file}.map` : null;
-  if (mapFile && (await exists(join(DIST, mapFile)))) {
-    traced.add(mapFile);
-  }
-
-  for (const match of content.matchAll(IMPORT_RE)) {
-    const spec = match[1] || match[2];
-    if (!spec) continue;
-    const resolved = await resolveImport(file, spec);
-    if (resolved) {
-      await trace(resolved, traced);
-    }
-  }
-
-  return traced;
+function insideDir(absFile, dirAbs) {
+  const rel = relative(dirAbs, absFile);
+  return rel && !rel.startsWith("..") && !relative(dirAbs, absFile).startsWith(sep === "/" ? "../" : "..\\");
 }
 
 async function buildFunction(entry, pkgJson) {
@@ -94,13 +50,36 @@ async function buildFunction(entry, pkgJson) {
   await rm(funcDir, { recursive: true, force: true });
   await mkdir(funcDir, { recursive: true });
 
-  const files = await trace(entry.src);
+  const entryAbs = resolve(DIST, entry.src);
+  const traceResult = await nodeFileTrace([entryAbs], {
+    base: projectRoot,
+    processCwd: projectRoot,
+    ts: true,
+    mixedModules: true,
+    moduleSyncCatchall: true,
+  });
 
-  for (const file of files) {
-    const src = join(DIST, file);
-    const dest = join(funcDir, file);
-    await mkdir(dirname(dest), { recursive: true });
-    await copyFile(src, dest);
+  let copied = 0;
+  for (const relFile of traceResult.fileList) {
+    const absFile = resolve(projectRoot, relFile);
+
+    let destRel;
+    if (insideDir(absFile, distRoot)) {
+      destRel = normalize(relative(distRoot, absFile));
+    } else if (insideDir(absFile, join(projectRoot, "node_modules"))) {
+      destRel = normalize(relative(projectRoot, absFile));
+    } else {
+      continue;
+    }
+
+    if (destRel.includes("/.bin/")) continue;
+    if (destRel.endsWith("/.package-lock.json")) continue;
+    if (destRel.includes("/node_modules/.cache/")) continue;
+
+    const destPath = join(funcDir, destRel);
+    await mkdir(dirname(destPath), { recursive: true });
+    await copyFile(absFile, destPath);
+    copied++;
   }
 
   const vcConfig = {
@@ -123,6 +102,8 @@ async function buildFunction(entry, pkgJson) {
     join(funcDir, "package.json"),
     JSON.stringify(pkgJson, null, "\t"),
   );
+
+  return copied;
 }
 
 async function main() {
@@ -145,7 +126,8 @@ async function main() {
 
   for (const entry of ENTRY_POINTS) {
     console.log(`Building function: ${entry.route}`);
-    await buildFunction(entry, pkgJson);
+    const count = await buildFunction(entry, pkgJson);
+    console.log(`  → ${count} files copied`);
   }
 
   const config = {
