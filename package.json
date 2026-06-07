@@ -2,24 +2,42 @@
   "name": "telegram-q-bot",
   "version": "1.0.19",
   "description": "Telegram Question Bot - A Telegram bot deployed on Vercel",
-  "main": "api/webhook.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "keywords": [
-    "telegram",
     "bot",
+    "telegram",
     "vercel",
     "webhook"
   ],
-  "author": "",
   "license": "ISC",
-  "engines": {
-    "node": ">=20.x"
+  "author": "",
+  "type": "module",
+  "main": "dist/api/webhook.js",
+  "scripts": {
+    "build": "tsc && tsc-alias",
+    "build:vercel": "node .github/vercel/build-vercel.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "validate": "oxlint && oxfmt --check && tsc --noEmit"
   },
   "dependencies": {
     "dotenv": "^17.4.1",
     "node-telegram-bot-api": "^0.66.0",
-    "redis": "^5.10.0"
+    "redis": "^5.10.0",
+    "tsc-alias": "^1.8.16",
+    "typescript": "^5.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/node-telegram-bot-api": "^0.64.14",
+    "@vercel/nft": "^1.10.0",
+    "@vercel/node": "^5.0.0",
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0"
+  },
+  "engines": {
+    "node": ">=22.x"
   }
 }

@@ -1,4 +1,6 @@
 {
+  "outputDirectory": "dist",
+  "framework": null,
   "git": {
     "deploymentEnabled": false
   },
