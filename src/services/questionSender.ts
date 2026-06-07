@@ -63,7 +63,7 @@ export async function sendQuestionMessage(
   const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
 
   // Send loading message
-  const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю вопрос...", threadOpts);
+  const loadingMsg = await bot.sendMessage(chatId, MESSAGES.LOADING_QUESTION, threadOpts);
 
   // Load question from the question service
   const questionLoader = QuestionLoader(DEFAULT_TARGET, complexity);
@@ -118,14 +118,14 @@ export async function sendQuestionMessage(
         throw new Error("sendMediaGroup returned empty messages array");
       }
 
-      const separate = await bot.sendMessage(chatId, "Ответ на вопрос", {
+      const separate = await bot.sendMessage(chatId, MESSAGES.ANSWER_TITLE, {
         ...threadOpts,
         reply_to_message_id: questionMessage.message_id,
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "📖 Ответ", callback_data: JSON.stringify({ answerKey }) },
-              { text: "✨ Подсказка", callback_data: JSON.stringify({ hintKey }) },
+              { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
+              { text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) },
             ],
           ],
         },
@@ -165,8 +165,8 @@ export async function sendQuestionMessage(
     reply_markup: {
       inline_keyboard: [
         [
-          { text: "📖 Ответ", callback_data: JSON.stringify({ answerKey }) },
-          { text: "✨ Подсказка", callback_data: JSON.stringify({ hintKey }) },
+          { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
+          { text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) },
         ],
       ],
     },

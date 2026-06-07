@@ -34,6 +34,7 @@ export function escapeMarkdownV2(text: string | null | undefined): string {
   // Characters that need to be escaped in MarkdownV2
   const specialChars = [
     "_",
+    "*",
     "[",
     "]",
     "(",

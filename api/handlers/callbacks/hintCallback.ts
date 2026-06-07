@@ -6,6 +6,7 @@ import type TelegramBot from "node-telegram-bot-api";
 import type { RedisClientType } from "redis";
 
 import { generateHint, formatErrorMessage } from "@/services/openrouter.js";
+import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import type { ThreadOpts } from "@/types/telegram.js";
 
@@ -53,7 +54,7 @@ export default async function hintCallback(
     const hintDataStr = redis ? await redis.get(hintKey) : null;
 
     if (!hintDataStr) {
-      await bot.sendMessage(chatId, "⏰ Время подсказки истекло.", threadOpts);
+      await bot.sendMessage(chatId, MESSAGES.HINT_EXPIRED, threadOpts);
       return;
     }
 
@@ -63,7 +64,7 @@ export default async function hintCallback(
     // Remove hint button from keyboard (keep answer button)
     try {
       const answerKeyMatch = callbackQuery.message?.reply_markup?.inline_keyboard?.[0]?.find(
-        (btn) => btn.text === "📖 Ответ",
+        (btn) => btn.text === MESSAGES.BUTTON_ANSWER,
       );
       const newKeyboard = answerKeyMatch
         ? { inline_keyboard: [[answerKeyMatch]] }
@@ -80,7 +81,7 @@ export default async function hintCallback(
     // Generate hint using AI
     let hint: string;
     try {
-      const loadingMsg = await bot.sendMessage(chatId, "✨ Загружаю подсказку...", threadOpts);
+      const loadingMsg = await bot.sendMessage(chatId, MESSAGES.HINT_LOADING, threadOpts);
       hint = await generateHint(question, answer, description, questionPreview);
       try {
         await bot.deleteMessage(chatId, loadingMsg.message_id);
@@ -106,7 +107,7 @@ export default async function hintCallback(
   } catch (error) {
     console.error("Error handling callback query (hint):", error);
     await bot.answerCallbackQuery(callbackQuery.id, {
-      text: "❌ Ошибка при загрузке подсказки",
+      text: MESSAGES.ERROR_LOADING_HINT,
       show_alert: true,
     });
   }

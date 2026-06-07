@@ -6,6 +6,7 @@ import type TelegramBot from "node-telegram-bot-api";
 import type { RedisClientType } from "redis";
 
 import { sendQuestionMessage } from "@/services/questionSender.js";
+import { MESSAGES } from "@/bot/constants.js";
 import type { CallbackAction } from "@/types/telegram.js";
 
 interface TelegramCallbackQuery {
@@ -45,7 +46,7 @@ export default async function packQuestionCallback(
   } catch (error) {
     console.error("Error handling pack question callback:", error);
     await bot.answerCallbackQuery(callbackQuery.id, {
-      text: "❌ Ошибка при загрузке вопроса",
+      text: MESSAGES.ERROR_LOADING_QUESTION,
       show_alert: true,
     });
   }

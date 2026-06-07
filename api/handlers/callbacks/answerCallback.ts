@@ -62,7 +62,7 @@ export default async function answerCallback(
           inline_keyboard: [
             [
               {
-                text: `❓ Вопрос ${questionId}`,
+                text: `${MESSAGES.BUTTON_QUESTION_PREFIX} ${questionId}`,
                 url: `https://${TARGET_DOMAIN}/question/${questionId}`,
               },
             ],
@@ -106,7 +106,7 @@ export default async function answerCallback(
             inline_keyboard: [
               [
                 {
-                  text: "📦 Играть весь пакет",
+                  text: MESSAGES.BUTTON_PLAY_PACK,
                   callback_data: JSON.stringify({ action: "pack", packId }),
                 },
               ],
@@ -149,7 +149,7 @@ export default async function answerCallback(
   } catch (error) {
     console.error("Error handling callback query (answer):", error);
     await bot.answerCallbackQuery(callbackQuery.id, {
-      text: "❌ Ошибка при загрузке ответа",
+      text: MESSAGES.ERROR_LOADING_ANSWER,
       show_alert: true,
     });
   }

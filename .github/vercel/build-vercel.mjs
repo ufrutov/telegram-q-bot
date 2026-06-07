@@ -13,13 +13,7 @@
  * Usage: node .github/vercel/build-vercel.mjs
  */
 
-import {
-  readFile,
-  writeFile,
-  mkdir,
-  copyFile,
-  rm,
-} from "node:fs/promises";
+import { readFile, writeFile, mkdir, copyFile, rm } from "node:fs/promises";
 import { join, dirname, relative, resolve, sep } from "node:path";
 import { nodeFileTrace } from "@vercel/nft";
 
@@ -42,7 +36,11 @@ function normalize(p) {
 
 function insideDir(absFile, dirAbs) {
   const rel = relative(dirAbs, absFile);
-  return rel && !rel.startsWith("..") && !relative(dirAbs, absFile).startsWith(sep === "/" ? "../" : "..\\");
+  return (
+    rel &&
+    !rel.startsWith("..") &&
+    !relative(dirAbs, absFile).startsWith(sep === "/" ? "../" : "..\\")
+  );
 }
 
 async function buildFunction(entry, pkgJson) {
@@ -93,15 +91,9 @@ async function buildFunction(entry, pkgJson) {
     shouldAddSourcemapSupport: true,
     awsLambdaHandler: "",
   };
-  await writeFile(
-    join(funcDir, ".vc-config.json"),
-    JSON.stringify(vcConfig, null, "\t"),
-  );
+  await writeFile(join(funcDir, ".vc-config.json"), JSON.stringify(vcConfig, null, "\t"));
 
-  await writeFile(
-    join(funcDir, "package.json"),
-    JSON.stringify(pkgJson, null, "\t"),
-  );
+  await writeFile(join(funcDir, "package.json"), JSON.stringify(pkgJson, null, "\t"));
 
   return copied;
 }
@@ -134,10 +126,7 @@ async function main() {
     version: 3,
     crons: vercelConfig.crons ?? [],
   };
-  await writeFile(
-    join(OUTPUT, "config.json"),
-    JSON.stringify(config, null, "\t"),
-  );
+  await writeFile(join(OUTPUT, "config.json"), JSON.stringify(config, null, "\t"));
 
   console.log(`\n✓ Built ${ENTRY_POINTS.length} functions in ${OUTPUT}/`);
   console.log("Next: vercel deploy --prebuilt --prod");

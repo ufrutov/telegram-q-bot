@@ -10,6 +10,7 @@ import GotQuestionsOnlineLoader from "@/lib/QuestionLoader/GotQuestionsOnlineLoa
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import { formatDate } from "@/utils/date.js";
 import {
+  MESSAGES,
   TARGET_DOMAIN,
   PACK_MAX_QUESTIONS_TO_SHOW,
   PACK_QUESTIONS_PER_ROW,
@@ -29,7 +30,7 @@ export async function sendPackMessage(
 ): Promise<void> {
   const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
 
-  const loadingMsg = await bot.sendMessage(chatId, "🔄 Загружаю пакет...", threadOpts);
+  const loadingMsg = await bot.sendMessage(chatId, MESSAGES.LOADING_PACK, threadOpts);
 
   try {
     let packData: Pack | null;
@@ -89,7 +90,7 @@ export async function sendPackMessage(
       // Ignore
     }
 
-    await bot.sendMessage(chatId, "❌ Ошибка при загрузке пакета\\. Попробуйте позже\\.", {
+    await bot.sendMessage(chatId, escapeMarkdownV2(MESSAGES.ERROR_LOADING_PACK), {
       ...threadOpts,
       parse_mode: "MarkdownV2",
     });

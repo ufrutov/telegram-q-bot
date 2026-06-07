@@ -23,11 +23,21 @@ export const MESSAGES = {
   DIFFICULTY_HARD: "🤯 Сложный вопрос",
   DIFFICULTY_RANDOM: "🌀 Случайный вопрос",
 
+  LOADING_QUESTION: "🔄 Загружаю вопрос...",
+  LOADING_PACK: "🔄 Загружаю пакет...",
+
+  ANSWER_TITLE: "Ответ на вопрос",
   ANSWER_EXPIRED: "⏰ Время ответа истекло.\nУвидеть ответ можно по ссылке ниже ↗️",
   HINT_EXPIRED: "⏰ Время подсказки истекло.",
   HINT_LOADING: "✨ Загружаю подсказку...",
 
+  BUTTON_ANSWER: "📖 Ответ",
+  BUTTON_HINT: "✨ Подсказка",
+  BUTTON_PLAY_PACK: "📦 Играть весь пакет",
+  BUTTON_QUESTION_PREFIX: "❓ Вопрос",
+
   ERROR_LOADING_QUESTION: "❌ Ошибка при загрузке вопроса",
   ERROR_LOADING_ANSWER: "❌ Ошибка при загрузке ответа",
   ERROR_LOADING_HINT: "❌ Ошибка при загрузке подсказки",
+  ERROR_LOADING_PACK: "❌ Ошибка при загрузке пакета. Попробуйте позже.",
 } as const;
