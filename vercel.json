@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "npx tsc && npx tsc-alias",
   "outputDirectory": "dist",
   "git": {
     "deploymentEnabled": false
