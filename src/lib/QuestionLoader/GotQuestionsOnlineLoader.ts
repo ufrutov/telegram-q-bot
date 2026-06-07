@@ -258,7 +258,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
         const packComplexity = (
           packData.trueDl.reduce((a, b) => a + b, 0) / packData.trueDl.length
         ).toFixed(1);
-        complexityText += ` Cложность *${packComplexity}*`;
+        complexityText += ` Cложность *${escapeMarkdownV2(packComplexity)}*`;
         result.trueDl = packComplexity;
       }
 
@@ -266,7 +266,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
         questionData.complexity.reduce((a, b) => a + b, 0) / questionData.complexity.length
       ).toFixed(1);
 
-      complexityText += ` • *${questionComplexity}%* верных ответов`;
+      complexityText += ` • *${escapeMarkdownV2(questionComplexity)}%* верных ответов`;
 
       // Add pack info if available
       if (packData?.title) {
