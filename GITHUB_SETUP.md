@@ -86,6 +86,7 @@ vercel --prod
 ### Deployment fails with "Project not found"
 
 Make sure you've:
+
 1. Run `vercel link` locally
 2. Committed the `.vercel` directory
 3. Added the `VERCEL_TOKEN` secret to GitHub
@@ -93,6 +94,7 @@ Make sure you've:
 ### Environment variables not working
 
 Environment variables must be set in your Vercel project settings:
+
 1. Go to your Vercel Dashboard
 2. Select your project
 3. **Settings** → **Environment Variables**
@@ -101,6 +103,7 @@ Environment variables must be set in your Vercel project settings:
 ### Webhook not working after deployment
 
 After each deployment, you need to set the webhook URL:
+
 1. Get your deployment URL from Vercel (e.g., `https://your-bot.vercel.app`)
 2. Set the webhook using this URL format:
    ```
