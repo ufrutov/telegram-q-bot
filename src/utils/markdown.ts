@@ -19,6 +19,13 @@
  * restore the originals. Bold is matched first so we never interpret the
  * `*` inside an already-swapped link as a bold delimiter.
  *
+ * The escape pass is idempotent: an input that already contains `\_`, `\*`,
+ * `\.`, etc. is left unchanged instead of being double-escaped. This matters
+ * when the same content is escaped in two stages (e.g. a pre-escape in a
+ * loader, then a full re-escape when building the final message) — without
+ * idempotency the second pass would produce `\\\_` and the resulting document
+ * can fail Telegram's parser with an "Can't find end of Italic entity" error.
+ *
  * Blockquote markers (`>` at line start) are preserved as-is even after the
  * pass that escapes `>` everywhere else.
  *
@@ -47,8 +54,8 @@ export function escapeMarkdownV2(text: string | null | undefined): string {
     return `\u0000MDBOLD${idx}\u0000`;
   });
 
-  // Characters that need to be escaped in MarkdownV2
-  const specialChars = [
+  // Characters that need to be escaped in MarkdownV2.
+  const SPECIAL = new Set([
     "_",
     "*",
     "[",
@@ -67,11 +74,35 @@ export function escapeMarkdownV2(text: string | null | undefined): string {
     "}",
     ".",
     "!",
-  ];
+  ]);
 
-  for (const char of specialChars) {
-    replaced = replaced.split(char).join("\\" + char);
+  // Single-pass idempotent escape. For each special char we only insert a
+  // leading backslash when the run of immediately preceding backslashes is
+  // even (i.e. the char is not already escaped). Backslash runs are copied
+  // through unchanged.
+  let out = "";
+  for (let i = 0; i < replaced.length; i++) {
+    const ch = replaced[i];
+    if (ch === "\\") {
+      let j = i;
+      while (j < replaced.length && replaced[j] === "\\") j++;
+      out += "\\".repeat(j - i);
+      i = j - 1;
+      continue;
+    }
+    if (SPECIAL.has(ch)) {
+      let k = i - 1;
+      let parity = 0;
+      while (k >= 0 && replaced[k] === "\\") {
+        parity++;
+        k--;
+      }
+      out += parity % 2 === 0 ? "\\" + ch : ch;
+    } else {
+      out += ch;
+    }
   }
+  replaced = out;
 
   // Preserve MarkdownV2 blockquote markers at line start.
   // All other '>' remain escaped as literal characters.
