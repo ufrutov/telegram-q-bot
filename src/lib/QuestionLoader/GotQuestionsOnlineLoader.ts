@@ -136,6 +136,28 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
+   * Extract question id from tag
+   * `#i12345` -> `12345`
+   */
+  extractQuestionId(tag: string | number): string {
+    if (tag.toString().startsWith("#")) {
+      const match = tag.toString().match(/#[a-zA-Z]*(\d+)/);
+
+      if (match && match.length > 1) {
+        return match[1];
+      } else {
+        console.error(
+          `[E][GotQuestionsOnlineLoader] Failed to extract Question ID from tag ${tag}`,
+        );
+      }
+
+      return tag.toString();
+    }
+
+    return tag.toString();
+  }
+
+  /**
    * Load Questions Pack data from API
    *
    * @param packId - Pack ID to load
@@ -323,6 +345,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     // If a specific question id is provided, fetch it directly and return
     if (questionId != null) {
       try {
+        questionId = this.extractQuestionId(questionId);
         const url = `${this.baseUrl}/api/question/${questionId}/`;
         const response = await this._fetchWithAuth(url, redis);
         if (!response.ok) {
