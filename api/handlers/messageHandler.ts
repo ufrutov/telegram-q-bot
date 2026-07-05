@@ -23,6 +23,36 @@ const COMPLEXITY_MAP: Record<string, Complexity> = {
   "/questionhard": "hard",
 };
 
+/**
+ * Extract question id from a message text.
+ * Looks at the second whitespace-separated token and pulls out
+ * the numeric id from it, regardless of format.
+ *
+ * `"#i12345"` -> `"12345"`
+ * `"#12345"` -> `"12345"`
+ * `"i12345"` -> `"12345"`
+ * `"https://gotquestions.online/question/12345"` -> `"12345"`
+ * `"just some text"` -> `null`
+ */
+function extractQuestionId(messageText: string): string | null {
+  const parts = messageText.split(/\s+/);
+
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const tag = parts[1];
+  const match = tag.match(/(\d+)\s*$/);
+
+  if (match && match.length > 1) {
+    return match[1];
+  }
+
+  console.error(`[E][GotQuestionsOnlineLoader] Failed to extract Question ID from tag ${tag}`);
+
+  return null;
+}
+
 async function handleQuestionCommand(
   bot: TelegramBot,
   redis: RedisClientType | null,
@@ -30,8 +60,8 @@ async function handleQuestionCommand(
   messageText: string,
   threadId: number | undefined,
 ): Promise<void> {
+  const questionId = extractQuestionId(messageText);
   const parts = messageText.split(/\s+/);
-  const questionId = parts.length > 1 && /^\d+$/.test(parts[1] ?? "") ? parts[1] : null;
   const complexity = COMPLEXITY_MAP[parts[0] ?? ""] ?? "random";
 
   await sendQuestionMessage(
