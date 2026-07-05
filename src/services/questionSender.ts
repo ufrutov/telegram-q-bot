@@ -86,9 +86,15 @@ export async function sendQuestionMessage(
   // Format question and answer for Telegram (MarkdownV2)
   const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
 
-  console.log(
-    `[${chatId}${threadId ? `_${threadId}` : ""}] ${complexity} question: ${questionData.link}`,
-  );
+  if (questionId) {
+    console.log(
+      `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] Load question by id: ${questionId} (${questionData.link})`,
+    );
+  } else {
+    console.log(
+      `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] ${complexity} question: ${questionData.link}`,
+    );
+  }
 
   try {
     await bot.deleteMessage(chatId, loadingMsg.message_id);
