@@ -72,6 +72,11 @@ interface OpenRouterResponse {
   choices: OpenRouterChoice[];
 }
 
+/** Cap on generated hint length. Hints are 2-4 sentences, so this is generous
+ * headroom while avoiding 402s from providers that default max_tokens to a
+ * model's full context window (e.g. 65536) when it's left unset. */
+const HINT_MAX_TOKENS = 500;
+
 export async function generateHint(
   question: string,
   correctAnswer: string,
@@ -126,6 +131,8 @@ export async function generateHint(
     body: JSON.stringify({
       model: "openrouter/auto",
       messages,
+      max_tokens: HINT_MAX_TOKENS,
+      temperature: 0.7,
     }),
   });
 
@@ -147,11 +154,14 @@ export function formatErrorMessage(error: unknown): string {
   if (message.includes("401") || message.includes("API key")) {
     return "⚠️ Ошибка API ключа. Проверьте настройки.";
   }
+  if (message.includes("402") || message.includes("credits")) {
+    return "⚠️ Недостаточно токенов для подсказки. Думаем сами, знатоки.";
+  }
   if (message.includes("429")) {
     return "⏳ Лимит запросов исчерпан. Попробуйте позже.";
   }
   if (message.includes("rate_limit")) {
     return "⏳ Лимит запросов исчерпан. Попробуйте позже.";
   }
-  return "⚠️ Не удалось создать подсказку. Попробуйте позже.";
+  return "⚠️ Не удалось загрузить подсказку. Думаем сами, знатоки.";
 }
