@@ -7,7 +7,8 @@ Telegram Question Bot ("Что? Где? Когда?") — deployed on Vercel as 
 - **Random questions** — `/question` or `/menu` to pick by difficulty (easy/medium/hard)
 - **Question packs** — `/pack` to browse and select questions from complete tournament packs
 - **AI hints** — OpenRouter generates logical hints without revealing the answer
-- **Daily cron** — auto-sends a question to configured chats at 12:00 GMT+3
+- **Scheduled sends** — per-chat schedule via `/cron add HH:MM`, fired by an hourly ticker
+- **Statistics** — `/stats` shows load counts, hint rates, and complexity breakdown
 - **Forum topics** — fully supports Telegram supergroups with forum topics
 - **Multi-source** — questions from `gotquestions.online` (primary) and `questions.chgk.info` (fallback)
 
@@ -18,24 +19,33 @@ telegram-q-bot/
 ├── api/
 │   ├── webhook.ts                     # Main webhook entry point (routes updates)
 │   ├── handlers/
-│   │   ├── messageHandler.ts          # Text command processor (/question, /menu, /pack)
+│   │   ├── messageHandler.ts          # Text command processor (/question, /menu, /pack, /cron, /stats)
 │   │   ├── callbackHandler.ts         # Button press router
+│   │   ├── commands/
+│   │   │   ├── cronCommand.ts              # /cron add|list|remove|enable|disable|setcomplexity
+│   │   │   └── statsCommand.ts             # /stats [7d|30d|all]
 │   │   └── callbacks/
 │   │       ├── questionCallback.ts          # Menu selection handler
 │   │       ├── answerCallback.ts            # Answer reveal handler
 │   │       ├── hintCallback.ts              # AI hint generator
 │   │       └── packQuestionCallback.ts      # Pack question selection handler
 │   └── cron/
-│       └── daily-question.ts          # Scheduled question sender
+│       └── ticker.ts                  # Hourly ticker (replaces daily-question.ts)
 ├── src/
 │   ├── bot/
 │   │   ├── botClient.ts               # Bot & Redis initialization
 │   │   └── constants.ts               # Centralized UI messages
 │   ├── services/
-│   │   ├── questionSender.ts          # Question loading & sending
+│   │   ├── questionSender.ts          # Question loading & sending (+ DB hooks)
 │   │   ├── packSender.ts              # Pack loading & keyboard generation
 │   │   ├── gotQuestionsAuth.ts        # JWT authentication for gotquestions.online
-│   │   └── openrouter.ts              # AI hint generation via OpenRouter
+│   │   ├── openrouter.ts              # AI hint generation via OpenRouter
+│   │   ├── supabase.ts                # Supabase client singleton + TABLES constant
+│   │   ├── chatStore.ts               # Upsert tq-bot-chats rows
+│   │   ├── questionSendStore.ts       # tq-bot-question_sends lifecycle (insert + hint update)
+│   │   ├── loadFailureStore.ts        # tq-bot-load_failures log
+│   │   ├── cronConfig.ts              # tq-bot-cron_jobs CRUD (cap=12 per chat)
+│   │   └── stats.ts                   # /stats aggregator + MarkdownV2 formatter
 │   ├── utils/
 │   │   ├── markdown.ts                # Telegram MarkdownV2 escaping
 │   │   └── date.ts                    # Russian date formatting
@@ -50,6 +60,9 @@ telegram-q-bot/
 │       ├── telegram.ts
 │       ├── telegram-bot-augment.d.ts  # Library type augmentation
 │       └── index.ts                   # Barrel re-exports
+├── supabase/
+│   └── migrations/
+│       └── 0001_init.sql              # Manual migration: tq-bot-chats, cron_jobs, question_sends, load_failures
 ├── package.json
 ├── tsconfig.json
 ├── vercel.json
@@ -92,15 +105,19 @@ and rewrites the `@/*` path alias to relative paths for Vercel.
 
 Add variables in your Vercel project (**Settings → Environment Variables**):
 
-| Variable                | Required    | Description                                                         |
-| ----------------------- | ----------- | ------------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`    | Yes         | Telegram bot token from BotFather                                   |
-| `GOTQUESTIONS_EMAIL`    | Yes         | Email for gotquestions.online bot account                           |
-| `GOTQUESTIONS_PASSWORD` | Yes         | Password for gotquestions.online bot account                        |
-| `CRON_TARGET_CHATS`     | For cron    | Comma-separated chat IDs (`123456` or `123456_42` for forum topics) |
-| `REDIS_URL`             | Recommended | Redis connection for answer/hint storage and JWT token caching      |
-| `OPENROUTER_API_KEY`    | For hints   | OpenRouter API key for AI-generated hints                           |
-| `CRON_SECRET`           | No          | Optional secret for manual cron invocations                         |
+| Variable                    | Required       | Description                                                    |
+| --------------------------- | -------------- | -------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`        | Yes            | Telegram bot token from BotFather                              |
+| `GOTQUESTIONS_EMAIL`        | Yes            | Email for gotquestions.online bot account                      |
+| `GOTQUESTIONS_PASSWORD`     | Yes            | Password for gotquestions.online bot account                   |
+| `SUPABASE_URL`              | For cron/stats | Supabase project URL                                           |
+| `SUPABASE_SERVICE_ROLE_KEY` | For cron/stats | Server-side key (never expose to clients)                      |
+| `REDIS_URL`                 | Recommended    | Redis connection for answer/hint storage and JWT token caching |
+| `OPENROUTER_API_KEY`        | For hints      | OpenRouter API key for AI-generated hints                      |
+| `CRON_SECRET`               | No             | Optional secret for manual cron invocations                    |
+
+> `CRON_TARGET_CHATS` was removed. Per-chat schedules are managed via the
+> `/cron` command and stored in Supabase.
 
 ### 5. Deploy to Vercel
 
@@ -151,6 +168,7 @@ Replace `<YOUR_BOT_TOKEN>` and the domain with your values.
 | ----------------------- | ------- | ------------------------------------------ |
 | `node-telegram-bot-api` | 0.66    | Telegram Bot API client                    |
 | `redis`                 | 5.10    | Redis client for state and JWT-token cache |
+| `@supabase/supabase-js` | 2.x     | Supabase (Postgres) client for chat state  |
 | `dotenv`                | 17.4    | Environment variable loading               |
 
 ### Development dependencies
@@ -190,16 +208,23 @@ The bot authenticates with `gotquestions.online` API using JWT tokens via NextAu
 
 ## Commands
 
-| Command           | Description                                            |
-| ----------------- | ------------------------------------------------------ |
-| `/question`       | Random question (any difficulty)                       |
-| `/question <id>`  | Load specific question by ID                           |
-| `/questioneasy`   | Random easy question                                   |
-| `/questionmedium` | Random medium question                                 |
-| `/questionhard`   | Random hard question                                   |
-| `/menu`           | Interactive difficulty selection menu                  |
-| `/pack`           | Display random question pack with interactive keyboard |
-| `/pack <id>`      | Display specific pack by ID (e.g., `/pack 6449`)       |
+| Command                                        | Description                                            |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| `/question`                                    | Random question (any difficulty)                       |
+| `/question <id>`                               | Load specific question by ID                           |
+| `/questioneasy`                                | Random easy question                                   |
+| `/questionmedium`                              | Random medium question                                 |
+| `/questionhard`                                | Random hard question                                   |
+| `/menu`                                        | Interactive difficulty selection menu                  |
+| `/pack`                                        | Display random question pack with interactive keyboard |
+| `/pack <id>`                                   | Display specific pack by ID (e.g., `/pack 6449`)       |
+| `/cron add HH:MM [complexity]`                 | Add a daily scheduled send (up to 12 per chat)         |
+| `/cron list`                                   | List scheduled sends for this chat                     |
+| `/cron remove <id_prefix>`                     | Remove a scheduled send                                |
+| `/cron enable <id_prefix>`                     | Re-enable a disabled send                              |
+| `/cron disable <id_prefix>`                    | Disable a send without deleting it                     |
+| `/cron setcomplexity <id_prefix> <complexity>` | Change the difficulty of a send                        |
+| `/stats [7d\|30d\|all]`                        | Show load counts, hint rates, complexity breakdown     |
 
 ### Pack Command
 
@@ -231,10 +256,10 @@ Clicking any number loads that specific question with answer/hint buttons.
 
 ## API Routes
 
-| Route                               | Method    | Description                                    |
-| ----------------------------------- | --------- | ---------------------------------------------- |
-| `POST /api/webhook`                 | POST      | Telegram update webhook                        |
-| `GET/POST /api/cron/daily-question` | GET, POST | Cron: sends daily question to configured chats |
+| Route                       | Method    | Description                                                                  |
+| --------------------------- | --------- | ---------------------------------------------------------------------------- |
+| `POST /api/webhook`         | POST      | Telegram update webhook                                                      |
+| `GET/POST /api/cron/ticker` | GET, POST | Hourly ticker — sends a question per enabled cron_job whose hour matches now |
 
 ## Forum Topic Support
 
@@ -242,13 +267,37 @@ In supergroups with forum topics enabled, all bot messages stay inside the topic
 where the user issued the command. The `message_thread_id` is extracted from the
 incoming update and forwarded to every outgoing message.
 
-For cron jobs, specify the thread ID in `CRON_TARGET_CHATS`:
+Scheduled sends are scoped per `(chat_id, thread_id)` pair, so a forum topic
+can have its own independent schedule via `/cron` commands inside that topic.
 
-```
-123456,123456_42,99999_9,88888
-```
+## Database Setup
 
-Entries without a thread ID (`123456`) send to the General topic.
+The bot uses [Supabase](https://supabase.com) (Postgres) for chat-related
+state. Migrations are applied **manually**; the source of truth is committed
+to the repo.
+
+1. Create a Supabase project (or use an existing one).
+2. Add these env vars to Vercel:
+   - `SUPABASE_URL` — project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` — server-side key (never expose to clients)
+3. Open the Supabase SQL editor and paste the contents of
+   [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql).
+   Run it.
+
+The file is idempotent (`create table if not exists`), so re-running it is
+safe.
+
+All tables are prefixed with `tq-bot-` so multiple projects can share one
+database without name collisions. The schema is:
+
+- `tq-bot-chats` — one row per chat (or chat+thread pair)
+- `tq-bot-cron_jobs` — per-chat schedule (up to 12 jobs per chat)
+- `tq-bot-question_sends` — one row per question successfully sent (mutated on hint)
+- `tq-bot-load_failures` — append-only log of failed question loads
+
+The bot degrades gracefully if Supabase is unreachable: every DB call is
+wrapped in a try/catch that logs a warning and continues. The user always
+sees the same Telegram reply they would without the integration.
 
 ## License
 
