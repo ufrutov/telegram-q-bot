@@ -27,20 +27,20 @@ export interface CronJobRow {
 
 export type CronResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const TIME_REGEX = /^(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?$/;
+const TIME_REGEX = /^(\d{1,2})(?::(\d{1,2}))?$/;
 
 /**
- * Parse "12", "12:30", "9:5:0" into normalized "HH:MM:SS". Returns null on
- * invalid input or out-of-range hours/minutes.
+ * Parse "12" or "12:30" into normalized "HH:MM:SS". Returns null on
+ * invalid input or out-of-range hours/minutes. Seconds are not accepted
+ * because the on-the-hour ticker matches on the hour only.
  */
 export function parseTime(input: string): string | null {
   const m = input.trim().match(TIME_REGEX);
   if (!m) return null;
   const hh = Number(m[1]);
   const mm = m[2] != null ? Number(m[2]) : 0;
-  const ss = m[3] != null ? Number(m[3]) : 0;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return null;
-  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00`;
 }
 
 export function isComplexity(value: string | undefined): value is Complexity {
@@ -70,36 +70,27 @@ export async function addJob(
 
   const complexity: Complexity = isComplexity(complexityInput) ? complexityInput : "random";
 
-  const chat = await resolveChat(chatId, threadId);
+  const chat = await getOrCreateChat(chatId, threadId);
   if (!chat) return { ok: false, error: "Chat could not be registered" };
 
   try {
-    const { count, error: countError } = await supabase
-      .from(TABLES.cronJobs)
-      .select("id", { count: "exact", head: true })
-      .eq("chat_id", chat.id);
+    // Atomic count + insert via RPC. Concurrent /cron add calls in the
+    // same chat are serialized through an advisory lock derived from
+    // chat_id, so the 12-cap is enforced server-side.
+    const { data, error } = await supabase.rpc("tq_bot_add_cron_job", {
+      p_chat_id: chat.id,
+      p_send_at: time,
+      p_complexity: complexity,
+      p_max: MAX_JOBS_PER_CHAT,
+    });
 
-    if (countError) {
-      return { ok: false, error: `DB error: ${countError.message}` };
+    if (error) {
+      const message = error.message ?? "";
+      if (message.includes("maximum") && message.includes("jobs per chat")) {
+        return { ok: false, error: `Maximum of ${MAX_JOBS_PER_CHAT} jobs per chat reached.` };
+      }
+      return { ok: false, error: `DB error: ${message}` };
     }
-    if ((count ?? 0) >= MAX_JOBS_PER_CHAT) {
-      return {
-        ok: false,
-        error: `Maximum of ${MAX_JOBS_PER_CHAT} jobs per chat reached.`,
-      };
-    }
-
-    const { data, error } = await supabase
-      .from(TABLES.cronJobs)
-      .insert({
-        chat_id: chat.id,
-        send_at: time,
-        complexity,
-      })
-      .select("id, chat_id, send_at, complexity, is_enabled, last_sent_at, created_at")
-      .single();
-
-    if (error) return { ok: false, error: `DB error: ${error.message}` };
     if (!data) return { ok: false, error: "Insert returned no row" };
     return { ok: true, value: data as CronJobRow };
   } catch (err) {

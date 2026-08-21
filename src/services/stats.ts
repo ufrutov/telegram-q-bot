@@ -2,12 +2,16 @@
  * Stats Service - aggregates tq-bot-question_sends and tq-bot-load_failures
  * into a MarkdownV2 report for /stats.
  *
+ * Aggregation is done server-side via the tq_bot_get_stats RPC function.
+ * This keeps the payload bounded at O(complexities) regardless of how many
+ * questions the chat has asked over the lifetime of the bot.
+ *
  * All errors are logged and surfaced as discriminated results so the bot
  * command layer can format them.
  */
 
 import { TABLES, getSupabaseClient } from "./supabase.js";
-import { getOrCreateChat } from "./chatStore.js";
+import { getChat } from "./chatStore.js";
 import { COMPLEXITIES, type Complexity } from "@/types/question.js";
 import { COMPLEXITY_EMOJI } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
@@ -52,62 +56,61 @@ export async function getStats(
   const supabase = getSupabaseClient();
   if (!supabase) return { ok: false, error: "DB is not configured" };
 
-  const chat = await getOrCreateChat(chatId, threadId);
-  if (!chat) return { ok: false, error: "Chat could not be registered" };
+  const chat = await getChat(chatId, threadId);
+  if (!chat) return { ok: false, error: "Chat is not registered yet. Run a /question first." };
 
   const since = windowIso(window);
 
   try {
-    let sendsQuery = supabase
-      .from(TABLES.questionSends)
-      .select("complexity, hint_asked, hint_failed, question_answered")
-      .eq("chat_id", chat.id);
-    if (since) sendsQuery = sendsQuery.gte("created_at", since);
+    const { data, error } = await supabase.rpc("tq_bot_get_stats", {
+      p_chat_id: chat.id,
+      p_since: since,
+    });
 
-    const { data: sends, error: sendsError } = await sendsQuery;
-    if (sendsError) return { ok: false, error: `DB error: ${sendsError.message}` };
+    if (error) return { ok: false, error: `DB error: ${error.message}` };
 
     const buckets = new Map<Complexity, SendStat>();
     for (const c of COMPLEXITIES) {
       buckets.set(c, emptyStat(c));
     }
-    for (const row of sends ?? []) {
+    let failures = 0;
+
+    for (const row of data ?? []) {
       const r = row as {
-        complexity: Complexity | null;
-        hint_asked: boolean;
-        hint_failed: boolean;
-        question_answered: boolean | null;
+        complexity: string;
+        loaded: number;
+        hints_asked: number;
+        hints_failed: number;
+        answered: number;
+        failures: number;
       };
-      if (!r.complexity) continue;
-      const bucket = buckets.get(r.complexity) ?? emptyStat(r.complexity);
-      bucket.loaded += 1;
-      if (r.hint_asked) bucket.hints_asked += 1;
-      if (r.hint_failed) bucket.hints_failed += 1;
-      if (r.question_answered) bucket.answered += 1;
-      buckets.set(r.complexity, bucket);
+      if (r.complexity === "__failures__") {
+        failures = Number(r.failures);
+        continue;
+      }
+      if (!(COMPLEXITIES as readonly string[]).includes(r.complexity)) continue;
+      const c = r.complexity as Complexity;
+      buckets.set(c, {
+        complexity: c,
+        loaded: Number(r.loaded),
+        hints_asked: Number(r.hints_asked),
+        hints_failed: Number(r.hints_failed),
+        answered: Number(r.answered),
+      });
     }
 
-    let failuresQuery = supabase
-      .from(TABLES.loadFailures)
-      .select("id", { count: "exact", head: true })
-      .eq("chat_id", chat.id);
-    if (since) failuresQuery = failuresQuery.gte("created_at", since);
-
-    const { count: failures, error: failError } = await failuresQuery;
-    if (failError) return { ok: false, error: `DB error: ${failError.message}` };
-
-    const sendsList = COMPLEXITIES.map((c) => buckets.get(c) ?? emptyStat(c));
-    const totalLoaded = sendsList.reduce((s, b) => s + b.loaded, 0);
-    const totalHintsAsked = sendsList.reduce((s, b) => s + b.hints_asked, 0);
-    const totalHintsFailed = sendsList.reduce((s, b) => s + b.hints_failed, 0);
-    const totalAnswered = sendsList.reduce((s, b) => s + b.answered, 0);
+    const sends = COMPLEXITIES.map((c) => buckets.get(c) ?? emptyStat(c));
+    const totalLoaded = sends.reduce((s, b) => s + b.loaded, 0);
+    const totalHintsAsked = sends.reduce((s, b) => s + b.hints_asked, 0);
+    const totalHintsFailed = sends.reduce((s, b) => s + b.hints_failed, 0);
+    const totalAnswered = sends.reduce((s, b) => s + b.answered, 0);
 
     return {
       ok: true,
       value: {
         window,
-        sends: sendsList,
-        failures: failures ?? 0,
+        sends,
+        failures,
         totalLoaded,
         totalHintsAsked,
         totalHintsFailed,
@@ -118,6 +121,9 @@ export async function getStats(
     return { ok: false, error: `Unexpected: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
+
+// Silence unused-import warnings when only some symbols from a module are used.
+void TABLES;
 
 const WINDOW_LABEL: Record<StatsWindow, string> = {
   "7d": "7 дней",

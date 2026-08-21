@@ -1,7 +1,20 @@
 /**
- * Chat Store - upserts tq-bot-chats rows and caches the UUID per serverless invocation.
+ * Chat Store - upserts and looks up tq-bot-chats rows.
  *
- * All errors are logged and swallowed. The bot never crashes because the DB is missing.
+ * - getOrCreateChat: write path. Inserts the row if missing and returns the
+ *   full ChatRow. Used by questionSendStore / loadFailureStore / cronConfig
+ *   where we know the chat has interacted with the bot.
+ * - getChat: read-only path. Returns null if the chat is not registered.
+ *   Used by stats and any future read-only command that must NOT pollute the
+ *   chats table.
+ *
+ * Per-invocation cache: rows survive as long as the module instance does,
+ * which on Vercel means across many invocations within the same warm
+ * function. Cold starts wipe it, which is fine — the next call is one
+ * round-trip to Postgres.
+ *
+ * All errors are logged and swallowed. The bot never crashes because the DB
+ * is missing.
  */
 
 import { TABLES, getSupabaseClient } from "./supabase.js";
@@ -15,22 +28,17 @@ export interface ChatRow {
   is_active: boolean;
 }
 
-/** Per-invocation cache (chat_id,thread_id) -> row. Wiped on cold start. */
 const cache = new Map<string, ChatRow>();
 
 function cacheKey(chatId: number | string, threadId: number | undefined): string {
-  return `${chatId}:${threadId ?? ""}`;
+  const chatPart = String(chatId);
+  const threadPart = threadId == null ? "" : String(threadId);
+  return `${chatPart}:${threadPart}`;
 }
 
-/**
- * Returns the chat's UUID, creating the row if it does not yet exist.
- * Returns null if Supabase is unconfigured or the call fails — callers
- * must handle null and skip the dependent write.
- */
 export async function getOrCreateChat(
   chatId: number | string,
   threadId: number | undefined,
-  title?: string,
 ): Promise<ChatRow | null> {
   const numericChatId = typeof chatId === "string" ? Number(chatId) : chatId;
   if (!Number.isFinite(numericChatId)) {
@@ -52,7 +60,6 @@ export async function getOrCreateChat(
     const row = {
       chat_id: numericChatId,
       thread_id: threadId ?? null,
-      ...(title ? { title } : {}),
     };
 
     const { data, error } = await supabase
@@ -88,7 +95,8 @@ export async function getOrCreateChat(
 }
 
 /**
- * Look up an existing chat row without inserting. Returns null if missing or on error.
+ * Read-only lookup. Returns null if the chat is not registered or if
+ * the call fails. Never inserts.
  */
 export async function getChat(
   chatId: number | string,

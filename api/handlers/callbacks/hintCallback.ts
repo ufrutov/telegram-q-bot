@@ -106,12 +106,12 @@ export default async function hintCallback(
       disable_web_page_preview: true,
     });
 
-    const hintMessageId = callbackQuery.message?.message_id;
-    if (hintMessageId !== undefined) {
+    const buttonMessageId = callbackQuery.message?.message_id;
+    if (buttonMessageId !== undefined) {
       await recordHintResult({
         chatId,
         threadId,
-        telegramMessageId: hintMessageId,
+        telegramMessageId: buttonMessageId,
         ok: hintOk,
         ...(hintError ? { error: hintError } : {}),
       });

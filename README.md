@@ -284,8 +284,8 @@ to the repo.
    [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql).
    Run it.
 
-The file is idempotent (`create table if not exists`), so re-running it is
-safe.
+The file is idempotent (`create table if not exists`, `create or replace
+function`), so re-running is safe.
 
 All tables are prefixed with `tq-bot-` so multiple projects can share one
 database without name collisions. The schema is:

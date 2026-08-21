@@ -24,7 +24,6 @@ interface RecordQuestionSentArgs {
   telegramMessageId: number;
   questionId: string | number | null;
   complexity: Complexity;
-  title?: string;
 }
 
 /**
@@ -33,14 +32,14 @@ interface RecordQuestionSentArgs {
  * call is a no-op so the bot keeps working.
  */
 export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<void> {
-  const { chatId, threadId, telegramMessageId, questionId, complexity, title } = args;
+  const { chatId, threadId, telegramMessageId, questionId, complexity } = args;
 
   const supabase = getSupabaseClient();
   if (!supabase) {
     return;
   }
 
-  const chat = await getOrCreateChat(chatId, threadId, title);
+  const chat = await getOrCreateChat(chatId, threadId);
   if (!chat) {
     return;
   }
@@ -122,20 +121,4 @@ export async function recordHintResult(args: RecordHintResultArgs): Promise<void
     const message = err instanceof Error ? err.message : String(err);
     console.warn("[supabase] recordHintResult unexpected error:", message);
   }
-}
-
-/**
- * Stub for the future question_answered flag. Not wired today.
- * When the trigger is added, it should mirror recordHintResult and update
- * the question_sends row matching (chat_id, telegram_message_id).
- */
-export async function recordQuestionAnswered(
-  _chatId: number | string,
-  _threadId: number | undefined,
-  _telegramMessageId: number,
-): Promise<void> {
-  // no-op until the future trigger is implemented
-  void _chatId;
-  void _threadId;
-  void _telegramMessageId;
 }
