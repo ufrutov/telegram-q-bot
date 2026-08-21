@@ -1,29 +1,19 @@
 /**
- * Cron Command Handler - manage per-chat scheduled question sends.
+ * Cron Command Handler - toggle the daily scheduled question send.
  *
  * Syntax:
- *   /cron add HH:MM [complexity]   (e.g. /cron add 12, /cron add 18:30 easy)
- *   /cron list
- *   /cron remove <id_prefix>
- *   /cron enable <id_prefix>
- *   /cron disable <id_prefix>
- *   /cron setcomplexity <id_prefix> <complexity>
- *   /cron help
+ *   /cron on      — enable the daily question (default 12:00 in chat's timezone)
+ *   /cron off     — disable
+ *   /cron status  — show current state
+ *   /cron help    — usage
  *
- * Anyone in the chat can run these commands. Up to 12 jobs per chat.
+ * Anyone in the chat can run these commands. Up to 1 question per day;
+ * the time is fixed at 12:00 in the chat's timezone (default Europe/Chisinau).
  */
 
 import type TelegramBot from "node-telegram-bot-api";
 
-import {
-  addJob,
-  listJobs,
-  removeJob,
-  setJobComplexity,
-  setJobEnabled,
-  type CronJobRow,
-  MAX_JOBS_PER_CHAT,
-} from "@/services/cronConfig.js";
+import { getChat, setCronEnabled } from "@/services/chatStore.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import type { ThreadOpts } from "@/types/telegram.js";
 
@@ -33,39 +23,17 @@ interface TelegramMessage {
   message_thread_id?: number;
 }
 
-const HELP_TEXT = `⏰ *Настройка расписания*
+const HELP_TEXT = `⏰ *Ежедневный вопрос*
 
-Формат:
-  /cron add \\<HH:MM\\> \\<сложность\\>
-  /cron list
-  /cron remove \\<id\\_prefix\\>
-  /cron enable \\<id\\_prefix\\>
-  /cron disable \\<id\\_prefix\\>
-  /cron setcomplexity \\<id\\_prefix\\> \\<сложность\\>
-  /cron help
+Каждый день в 12:00 \\(по часовому поясу чата\\) бот отправит случайный вопрос.
 
-Сложность: random \\(по умолчанию\\), easy, medium, hard.
-До ${MAX_JOBS_PER_CHAT} задач на чат.
-Расписание срабатывает на указанный час \\(Vercel Hobby cron — раз в час\\).`;
+  /cron on      — включить
+  /cron off     — выключить
+  /cron status  — текущее состояние
+  /cron help    — эта справка`;
 
-function formatJobRow(job: CronJobRow): string {
-  const status = job.is_enabled ? "✅" : "⏸";
-  const idShort = job.id.slice(0, 8);
-  const last = job.last_sent_at ? new Date(job.last_sent_at).toISOString().slice(0, 10) : "—";
-  return `${status} \`${idShort}\` \\- ${escapeMarkdownV2(job.send_at.slice(0, 5))} \\(${escapeMarkdownV2(
-    job.complexity,
-  )}\\), last: ${escapeMarkdownV2(last)}`;
-}
-
-function formatList(jobs: CronJobRow[]): string {
-  if (jobs.length === 0) {
-    return "⏰ *Расписание*\n\nПусто. Используйте /cron add HH:MM \\[сложность\\]";
-  }
-  const lines = ["⏰ *Расписание*", ""];
-  for (const job of jobs) {
-    lines.push(formatJobRow(job));
-  }
-  return lines.join("\n");
+function formatCronTime(time: string): string {
+  return time.slice(0, 5);
 }
 
 export default async function cronCommand(
@@ -78,103 +46,80 @@ export default async function cronCommand(
 
   const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
   const text = (message.text ?? "").trim();
-  const parts = text.split(/\s+/).slice(1); // drop "/cron"
-  const subcommand = (parts[0] ?? "").toLowerCase();
+  const subcommand = (text.split(/\s+/)[1] ?? "").toLowerCase();
 
-  await sendResult(bot, chatId, threadOpts, async () => {
-    if (subcommand === "" || subcommand === "help") {
-      return { ok: true, text: HELP_TEXT };
-    }
-
-    if (subcommand === "list") {
-      const result = await listJobs(chatId, threadId);
-      if (!result.ok) return { ok: false, text: `❌ ${escapeMarkdownV2(result.error)}` };
-      return { ok: true, text: formatList(result.value) };
-    }
-
-    if (subcommand === "add") {
-      const timeArg = parts[1];
-      if (!timeArg) {
-        return { ok: false, text: "❌ Укажите время: /cron add HH:MM \\[сложность\\]" };
-      }
-      const complexityArg = parts[2];
-      const result = await addJob(chatId, threadId, timeArg, complexityArg);
-      if (!result.ok) return { ok: false, text: `❌ ${escapeMarkdownV2(result.error)}` };
-      const job = result.value;
-      return {
-        ok: true,
-        text: `✅ Добавлено: ${escapeMarkdownV2(job.send_at.slice(0, 5))} \\(${escapeMarkdownV2(
-          job.complexity,
-        )}\\)\\nID: \`${job.id.slice(0, 8)}\``,
-      };
-    }
-
-    if (subcommand === "remove" || subcommand === "rm") {
-      const prefix = parts[1];
-      if (!prefix)
-        return { ok: false, text: "❌ Укажите id или префикс: /cron remove <id_prefix>" };
-      const result = await removeJob(chatId, threadId, prefix);
-      if (!result.ok) return { ok: false, text: `❌ ${escapeMarkdownV2(result.error)}` };
-      return { ok: true, text: `✅ Удалено: \`${result.value.id.slice(0, 8)}\`` };
-    }
-
-    if (subcommand === "enable") {
-      const prefix = parts[1];
-      if (!prefix) return { ok: false, text: "❌ Укажите id: /cron enable <id_prefix>" };
-      const result = await setJobEnabled(chatId, threadId, prefix, true);
-      if (!result.ok) return { ok: false, text: `❌ ${escapeMarkdownV2(result.error)}` };
-      return { ok: true, text: `✅ Включено: \`${result.value.id.slice(0, 8)}\`` };
-    }
-
-    if (subcommand === "disable") {
-      const prefix = parts[1];
-      if (!prefix) return { ok: false, text: "❌ Укажите id: /cron disable <id_prefix>" };
-      const result = await setJobEnabled(chatId, threadId, prefix, false);
-      if (!result.ok) return { ok: false, text: `❌ ${escapeMarkdownV2(result.error)}` };
-      return { ok: true, text: `⏸ Выключено: \`${result.value.id.slice(0, 8)}\`` };
-    }
-
-    if (subcommand === "setcomplexity") {
-      const prefix = parts[1];
-      const complexity = parts[2];
-      if (!prefix || !complexity) {
-        return {
-          ok: false,
-          text: "❌ Использование: /cron setcomplexity <id_prefix> <сложность>",
-        };
-      }
-      const result = await setJobComplexity(chatId, threadId, prefix, complexity);
-      if (!result.ok) return { ok: false, text: `❌ ${escapeMarkdownV2(result.error)}` };
-      return {
-        ok: true,
-        text: `✅ Сложность обновлена: ${escapeMarkdownV2(result.value.complexity)}`,
-      };
-    }
-
-    return {
-      ok: false,
-      text: `❌ Неизвестная подкоманда: ${escapeMarkdownV2(subcommand)}\n\n${HELP_TEXT}`,
-    };
-  });
-}
-
-interface ResultPayload {
-  ok: boolean;
-  text: string;
-}
-
-async function sendResult(
-  bot: TelegramBot,
-  chatId: number | string,
-  threadOpts: ThreadOpts,
-  runner: () => Promise<ResultPayload>,
-): Promise<void> {
   try {
-    const result = await runner();
-    await bot.sendMessage(chatId, result.text, {
-      ...threadOpts,
-      parse_mode: "MarkdownV2",
-    });
+    if (subcommand === "" || subcommand === "help") {
+      await bot.sendMessage(chatId, HELP_TEXT, {
+        ...threadOpts,
+        parse_mode: "MarkdownV2",
+      });
+      return;
+    }
+
+    if (subcommand === "on") {
+      const result = await setCronEnabled(chatId, threadId, true);
+      if (!result.ok) {
+        await bot.sendMessage(chatId, `❌ ${escapeMarkdownV2(result.error)}`, {
+          ...threadOpts,
+          parse_mode: "MarkdownV2",
+        });
+        return;
+      }
+      const v = result.value;
+      await bot.sendMessage(
+        chatId,
+        `✅ Ежедневный вопрос включён\\. Время: ${escapeMarkdownV2(formatCronTime(v.cron_time))} \\(${escapeMarkdownV2(v.timezone)}\\)`,
+        { ...threadOpts, parse_mode: "MarkdownV2" },
+      );
+      return;
+    }
+
+    if (subcommand === "off") {
+      const result = await setCronEnabled(chatId, threadId, false);
+      if (!result.ok) {
+        await bot.sendMessage(chatId, `❌ ${escapeMarkdownV2(result.error)}`, {
+          ...threadOpts,
+          parse_mode: "MarkdownV2",
+        });
+        return;
+      }
+      await bot.sendMessage(chatId, "⏸ Ежедневный вопрос выключен", {
+        ...threadOpts,
+        parse_mode: "MarkdownV2",
+      });
+      return;
+    }
+
+    if (subcommand === "status") {
+      const chat = await getChat(chatId, threadId);
+      if (!chat) {
+        await bot.sendMessage(chatId, "ℹ️ Чат ещё не зарегистрирован. Задайте вопрос: /question", {
+          ...threadOpts,
+          parse_mode: "MarkdownV2",
+        });
+        return;
+      }
+      const status = chat.cron_enabled ? "✅ включён" : "⏸ выключен";
+      const lastSent = chat.cron_last_sent_at
+        ? new Date(chat.cron_last_sent_at).toISOString().slice(0, 10)
+        : "—";
+      await bot.sendMessage(
+        chatId,
+        `⏰ *Ежедневный вопрос*\n\nСтатус: ${status}\nВремя: ${escapeMarkdownV2(formatCronTime(chat.cron_time))} \\(${escapeMarkdownV2(chat.timezone)}\\)\nПоследняя отправка: ${escapeMarkdownV2(lastSent)}`,
+        { ...threadOpts, parse_mode: "MarkdownV2" },
+      );
+      return;
+    }
+
+    await bot.sendMessage(
+      chatId,
+      `❌ Неизвестная подкоманда: ${escapeMarkdownV2(subcommand)}\n\n${HELP_TEXT}`,
+      {
+        ...threadOpts,
+        parse_mode: "MarkdownV2",
+      },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[cronCommand] send failed:", message);

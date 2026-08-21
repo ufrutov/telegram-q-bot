@@ -1,9 +1,12 @@
 -- supabase/migrations/0001_init.sql
 --
--- Apply manually via Supabase SQL editor or `psql -f`.
+-- Clean init. Apply via Supabase SQL editor or `psql -f`.
 -- Tables are prefixed with `tq-bot-` so multiple projects can share one database.
--- All statements are idempotent (`if not exists`, `create or replace function`)
--- so re-running the file is safe.
+-- All statements are idempotent (`if not exists`, `create or replace function`,
+-- `drop ... if exists`) so re-running is safe.
+--
+-- To reset an existing database before re-applying, run the drops in
+-- `0000_drop_everything.sql` first.
 --
 -- RLS: enabled on every table. The bot uses the SERVICE_ROLE key only, which
 -- bypasses RLS, so no policies are required. If anyone ever uses anon or
@@ -14,34 +17,22 @@ create extension if not exists "pgcrypto";
 
 -- 1) Per-chat subscription (one row per chat OR chat+thread)
 create table if not exists "tq-bot-chats" (
-  id          uuid primary key default gen_random_uuid(),
-  chat_id     bigint not null,
-  thread_id   int,
-  title       text,
-  timezone    text not null default 'Europe/Moscow',
-  is_active   boolean not null default true,
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now(),
+  id                uuid primary key default gen_random_uuid(),
+  chat_id           bigint not null,
+  thread_id         int,
+  title             text,
+  timezone          text not null default 'Europe/Chisinau',
+  is_active         boolean not null default true,
+  cron_enabled      boolean not null default false,
+  cron_time         time not null default '12:00:00',
+  cron_last_sent_at timestamptz,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
   unique (chat_id, thread_id)
 );
 alter table "tq-bot-chats" enable row level security;
 
--- 2) Per-chat schedule (up to 12 rows per chat)
-create table if not exists "tq-bot-cron_jobs" (
-  id           uuid primary key default gen_random_uuid(),
-  chat_id      uuid not null references "tq-bot-chats"(id) on delete cascade,
-  send_at      time not null,
-  complexity   text not null default 'random'
-                 check (complexity in ('random','easy','medium','hard')),
-  is_enabled   boolean not null default true,
-  last_sent_at timestamptz,
-  created_at   timestamptz not null default now()
-);
-create index if not exists "tq-bot-cron_jobs_enabled"
-  on "tq-bot-cron_jobs" (chat_id) where is_enabled;
-alter table "tq-bot-cron_jobs" enable row level security;
-
--- 3) Per-question lifecycle (created on success, mutated on hint)
+-- 2) Per-question lifecycle (created on success, mutated on hint)
 create table if not exists "tq-bot-question_sends" (
   id                  bigint generated always as identity primary key,
   chat_id             uuid not null references "tq-bot-chats"(id) on delete cascade,
@@ -63,7 +54,7 @@ create index if not exists "tq-bot-question_sends_question"
   on "tq-bot-question_sends" (chat_id, question_id);
 alter table "tq-bot-question_sends" enable row level security;
 
--- 4) Lightweight log of failed question loads
+-- 3) Lightweight log of failed question loads
 create table if not exists "tq-bot-load_failures" (
   id          bigint generated always as identity primary key,
   chat_id     uuid not null references "tq-bot-chats"(id) on delete cascade,
@@ -83,10 +74,9 @@ alter table "tq-bot-load_failures" enable row level security;
 -- Postgres; the JS client calls them via Supabase `.rpc()`.
 -- ---------------------------------------------------------------------------
 
--- 1) Atomic /stats aggregation.
--- Returns one row per complexity with counts of loaded, hints_asked,
--- hints_failed, and answered in the window. Plus a synthetic row with
--- complexity = '__failures__' that holds the failure count.
+-- /stats aggregation. Returns one row per complexity with counts of loaded,
+-- hints_asked, hints_failed, and answered in the window. Plus a synthetic
+-- row with complexity = '__failures__' that holds the failure count.
 create or replace function tq_bot_get_stats(
   p_chat_id uuid,
   p_since timestamptz
@@ -137,54 +127,4 @@ as $$
     0::bigint,
     f.n
   from failures f;
-$$;
-
--- 2) Atomic addJob with the 12-cap enforced server-side.
--- Reads the current count under an advisory lock derived from chat_id,
--- raises if the cap is exceeded, otherwise inserts and returns the row.
--- Concurrent /cron add calls in the same chat are serialized through the
--- same lock, so the cap cannot be bypassed by race conditions.
-create or replace function tq_bot_add_cron_job(
-  p_chat_id uuid,
-  p_send_at time,
-  p_complexity text,
-  p_max int
-)
-returns table (
-  id uuid,
-  chat_id uuid,
-  send_at time,
-  complexity text,
-  is_enabled boolean,
-  last_sent_at timestamptz,
-  created_at timestamptz
-)
-language plpgsql
-as $$
-declare
-  v_count int;
-begin
-  perform pg_advisory_xact_lock(hashtextextended(p_chat_id::text, 0));
-
-  select count(*) into v_count
-  from "tq-bot-cron_jobs"
-  where chat_id = p_chat_id;
-
-  if v_count >= p_max then
-    raise exception 'maximum % jobs per chat reached', p_max
-      using errcode = 'P0001';
-  end if;
-
-  return query
-  insert into "tq-bot-cron_jobs" (chat_id, send_at, complexity)
-  values (p_chat_id, p_send_at, p_complexity)
-  returning
-    "tq-bot-cron_jobs".id,
-    "tq-bot-cron_jobs".chat_id,
-    "tq-bot-cron_jobs".send_at,
-    "tq-bot-cron_jobs".complexity,
-    "tq-bot-cron_jobs".is_enabled,
-    "tq-bot-cron_jobs".last_sent_at,
-    "tq-bot-cron_jobs".created_at;
-end;
 $$;

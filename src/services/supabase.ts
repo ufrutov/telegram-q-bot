@@ -17,7 +17,6 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  */
 export const TABLES = {
   chats: "tq-bot-chats",
-  cronJobs: "tq-bot-cron_jobs",
   questionSends: "tq-bot-question_sends",
   loadFailures: "tq-bot-load_failures",
 } as const;

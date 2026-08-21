@@ -1,14 +1,19 @@
 /**
- * Hourly Ticker
+ * Daily Cron Ticker
  *
- * Replaces /api/cron/daily-question. Vercel Hobby cron fires this once an
- * hour; we look up enabled cron_jobs, filter by the chat's local hour, and
- * send a question for each match. Idempotency: a job whose last_sent_at falls
- * in the current local day of the chat is skipped.
+ * Vercel Hobby plan fires this twice per day (see vercel.json) — at
+ * 09:00 UTC and 10:00 UTC — so we cover Moldova's DST shift (EEST in
+ * summer, EET in winter). Each tick walks every chat whose
+ * `cron_enabled` is true and sends a question when:
+ *   - the chat's local hour matches `cron_time::hour`, AND
+ *   - `cron_last_sent_at` is not today in the chat's timezone
+ *     (idempotency).
  *
- * Schedule: 0 * * * * (every hour, on the hour, UTC).
- * Concurrency: cron jobs for different chats run sequentially inside one
- * invocation; Vercel guarantees no overlap for the same cron entry.
+ * Chats in timezones that don't match either tick simply get one send
+ * per day — only the matching tick fires the question.
+ *
+ * Concurrency: Vercel guarantees no overlap for the same cron entry, so
+ * we run sequentially inside one invocation.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -16,7 +21,7 @@ import TelegramBot from "node-telegram-bot-api";
 import { createClient, type RedisClientType } from "redis";
 
 import { sendQuestionMessage } from "@/services/questionSender.js";
-import { listEnabledJobs, markJobSent } from "@/services/cronConfig.js";
+import { listChatsWithCronEnabled, markChatCronSent } from "@/services/chatStore.js";
 import { getSupabaseClient } from "@/services/supabase.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -89,9 +94,9 @@ export default async (req: VercelRequest, res: VercelResponse): Promise<void> =>
     }
 
     const now = new Date();
-    const result = await listEnabledJobs();
+    const result = await listChatsWithCronEnabled();
     if (!result.ok) {
-      console.error("[ticker] listEnabledJobs failed:", result.error);
+      console.error("[ticker] listChatsWithCronEnabled failed:", result.error);
       res.status(500).json({ error: result.error });
       return;
     }
@@ -100,15 +105,15 @@ export default async (req: VercelRequest, res: VercelResponse): Promise<void> =>
     let skipped = 0;
     let failed = 0;
 
-    for (const job of result.value) {
-      const chat = job.chats;
-      if (!chat) continue;
-
+    for (const chat of result.value) {
       const hourInTz = getHourInTz(now, chat.timezone);
-      const jobHour = Number(job.send_at.split(":")[0]);
-      if (hourInTz !== jobHour) continue;
+      const cronHour = Number(chat.cron_time.split(":")[0]);
+      if (hourInTz !== cronHour) continue;
 
-      if (job.last_sent_at && isSameLocalDay(new Date(job.last_sent_at), now, chat.timezone)) {
+      if (
+        chat.cron_last_sent_at &&
+        isSameLocalDay(new Date(chat.cron_last_sent_at), now, chat.timezone)
+      ) {
         skipped++;
         continue;
       }
@@ -120,17 +125,17 @@ export default async (req: VercelRequest, res: VercelResponse): Promise<void> =>
           bot,
           redisClient ?? undefined,
           chat.chat_id,
-          job.complexity,
+          "random",
           undefined,
           threadId,
         );
-        await markJobSent(job.id);
+        await markChatCronSent(chat.id);
         sent++;
-        console.log(`[ticker] sent job ${job.id} to ${logChat} (${job.complexity})`);
+        console.log(`[ticker] sent to ${logChat} at local ${hourInTz}:00`);
       } catch (err) {
         failed++;
         const message = err instanceof Error ? err.message : String(err);
-        console.error(`[ticker] failed job ${job.id} for ${logChat}:`, message);
+        console.error(`[ticker] failed for ${logChat}:`, message);
       }
     }
 

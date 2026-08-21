@@ -1,17 +1,23 @@
 ## Vercel Cron Jobs
 
-Scheduled sends are configured per-chat via the `/cron` Telegram command and
-executed by the hourly ticker (`/api/cron/ticker`).
+The daily scheduled question send is configured per-chat via the `/cron`
+Telegram command and executed by the daily ticker (`/api/cron/ticker`).
 
 ### Schedule
 
 - **Endpoint**: `/api/cron/ticker`
-- **Schedule**: `0 * * * *` (every hour, on the hour, UTC) — Vercel Hobby tier
-- **Logic**: Reads `tq-bot-cron_jobs` from Supabase, sends a question for any
-  enabled job whose `send_at` hour matches the current local hour in the
-  chat's timezone.
+- **Schedule**: `0 9 * * *` and `0 10 * * *` UTC — twice daily. Two ticks
+  are needed because Vercel Hobby cron is daily-only, so we cover both
+  EEST (summer) and EET (winter) for chats in `Europe/Chisinau`. Each
+  tick matches each chat's local hour against `tq-bot-chats.cron_time`;
+  only the matching tick fires a question.
+- **Logic**: Reads `tq-bot-chats` for rows with `cron_enabled = true`,
+  fires a question for each chat whose current local hour equals
+  `cron_time::hour` and whose `cron_last_sent_at` is not today in the
+  chat's timezone (idempotency).
 
-Per-chat timezone defaults to `Europe/Moscow` and is read from `tq-bot-chats`.
+Per-chat timezone defaults to `Europe/Chisinau` and lives on
+`tq-bot-chats.timezone`.
 
 ### Environment Variables
 
@@ -24,7 +30,7 @@ Per-chat timezone defaults to `Europe/Moscow` and is read from `tq-bot-chats`.
 | `CRON_SECRET`               | No       | Optional secret for manual testing                             |
 
 > `CRON_TARGET_CHATS` is no longer used. Configure schedules per-chat via
-> `/cron add HH:MM`.
+> `/cron on` and `/cron off`.
 
 ### Security
 
@@ -42,7 +48,7 @@ The response includes `sent`, `skipped`, and `failed` counts.
 
 ### Files
 
-- `api/cron/ticker.ts` — the hourly ticker
+- `api/cron/ticker.ts` — the daily ticker
 - `api/handlers/commands/cronCommand.ts` — `/cron` command parser
 - `supabase/migrations/0001_init.sql` — DB schema (apply manually)
 - `vercel.json` — Cron schedule configuration
@@ -51,9 +57,8 @@ The response includes `sent`, `skipped`, and `failed` counts.
 
 - Vercel Cron runs in UTC timezone
 - Cron jobs have the same timeout limits as serverless functions (10 seconds on free tier, 60 seconds on Pro)
-- Idempotency: a job whose `last_sent_at` is on the current local day (in the chat's
-  timezone) is skipped, so the 12-jobs-per-chat cap is naturally enforced even if
-  Vercel fires twice.
-- Up to 12 jobs per chat (`MAX_JOBS_PER_CHAT` in `src/services/cronConfig.ts`).
-- Hour resolution: `/cron add 12:30` stores `"12:30:00"` but the ticker matches on
-  the hour only. The minute is preserved for display.
+- Idempotency: a chat whose `cron_last_sent_at` is on the current local day
+  (in the chat's timezone) is skipped. Setting `cron_enabled = false`
+  pauses the daily send without deleting state.
+- Up to **1 question per day** per chat, at the chat's `cron_time`
+  (default `12:00:00`).
