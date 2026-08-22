@@ -155,12 +155,16 @@ export async function getChat(
 /**
  * Toggle cron_enabled for a chat. Inserts the row if missing (carrying the
  * default cron_time of 12:00 and the default timezone Europe/Chisinau).
+ * Returns the fields needed to re-render the status card, including
+ * cron_last_sent_at so callers don't need a second read.
  */
 export async function setCronEnabled(
   chatId: number | string,
   threadId: number | undefined,
   enabled: boolean,
-): Promise<CronResult<{ cron_enabled: boolean; cron_time: string; timezone: string }>> {
+): Promise<
+  CronResult<{ cron_enabled: boolean; cron_time: string; cron_last_sent_at: string | null }>
+> {
   const numericChatId = typeof chatId === "string" ? Number(chatId) : chatId;
   if (!Number.isFinite(numericChatId)) {
     return { ok: false, error: "Invalid chat id" };
@@ -180,7 +184,7 @@ export async function setCronEnabled(
         },
         { onConflict: "chat_id,thread_id" },
       )
-      .select("cron_enabled, cron_time, timezone")
+      .select("cron_enabled, cron_time, cron_last_sent_at")
       .single();
 
     if (error) return { ok: false, error: `DB error: ${error.message}` };
@@ -194,7 +198,7 @@ export async function setCronEnabled(
       value: {
         cron_enabled: data.cron_enabled,
         cron_time: data.cron_time,
-        timezone: data.timezone,
+        cron_last_sent_at: data.cron_last_sent_at,
       },
     };
   } catch (err) {

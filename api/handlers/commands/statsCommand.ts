@@ -1,9 +1,9 @@
 /**
  * Stats Command Handler - /stats
  *
- * Reads lifetime aggregates from tq-bot-question_sends and
- * tq-bot-load_failures via the stats service and renders a MarkdownV2
- * report. Falls back to a friendly message if the chat has no data yet.
+ * Renders the lifetime stats report. The send logic lives in the exported
+ * sendStatsReport() helper so both this command and the "📊 Статистика"
+ * menu callback share one code path.
  */
 
 import type TelegramBot from "node-telegram-bot-api";
@@ -18,14 +18,15 @@ interface TelegramMessage {
   message_thread_id?: number;
 }
 
-export default async function statsCommand(
+/**
+ * Fetch, render, and deliver the stats report for a chat/topic.
+ * Handles unregistered chats, empty data, and all error paths internally.
+ */
+export async function sendStatsReport(
   bot: TelegramBot,
-  message: TelegramMessage,
+  chatId: number | string,
   threadId: number | undefined,
 ): Promise<void> {
-  const chatId = message.chat?.id;
-  if (!chatId) return;
-
   const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
 
   try {
@@ -62,4 +63,15 @@ export default async function statsCommand(
       // ignore
     }
   }
+}
+
+export default async function statsCommand(
+  bot: TelegramBot,
+  message: TelegramMessage,
+  threadId: number | undefined,
+): Promise<void> {
+  const chatId = message.chat?.id;
+  if (!chatId) return;
+
+  await sendStatsReport(bot, chatId, threadId);
 }

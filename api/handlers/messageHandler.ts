@@ -124,6 +124,18 @@ async function handleMenuCommand(
             }),
           },
         ],
+        [
+          {
+            text: MESSAGES.MENU_STATS,
+            callback_data: JSON.stringify({ action: "stats" }),
+          },
+        ],
+        [
+          {
+            text: MESSAGES.MENU_CRON,
+            callback_data: JSON.stringify({ action: "cronStatus" }),
+          },
+        ],
       ],
     },
   });

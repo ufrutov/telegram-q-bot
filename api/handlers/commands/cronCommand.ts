@@ -2,20 +2,24 @@
  * Cron Command Handler - toggle the daily scheduled question send.
  *
  * Syntax:
- *   /cron on      — enable the daily question (default 12:00 in chat's timezone)
+ *   /cron on      — enable the daily question (fixed at 12:00 chat-local time)
  *   /cron off     — disable
- *   /cron status  — show current state
+ *   /cron status  — status card with an inline on/off toggle button
  *   /cron help    — usage
  *
- * Anyone in the chat can run these commands. Up to 1 question per day;
- * the time is fixed at 12:00 in the chat's timezone (default Europe/Chisinau).
+ * The same status card is rendered by the "⏰ Ежедневный вопрос" menu item
+ * (via cronStatusCallback), so both entry points share resolveCronState /
+ * buildCronStatusText / buildCronKeyboard below.
+ *
+ * Anyone in the chat can run these commands. One question per day at 12:00.
  */
 
 import type TelegramBot from "node-telegram-bot-api";
 
 import { getChat, setCronEnabled } from "@/services/chatStore.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
-import type { ThreadOpts } from "@/types/telegram.js";
+import { MESSAGES } from "@/bot/constants.js";
+import type { InlineKeyboardMarkup, ThreadOpts } from "@/types/telegram.js";
 
 interface TelegramMessage {
   chat?: { id?: number | string };
@@ -25,15 +29,71 @@ interface TelegramMessage {
 
 const HELP_TEXT = `⏰ *Ежедневный вопрос*
 
-Каждый день в 12:00 \\(по часовому поясу чата\\) бот отправит случайный вопрос.
+Каждый день в 12:00 бот отправит случайный вопрос\\.
 
   /cron on      — включить
   /cron off     — выключить
   /cron status  — текущее состояние
   /cron help    — эта справка`;
 
-function formatCronTime(time: string): string {
-  return time.slice(0, 5);
+/** State needed to render the cron status card. */
+export interface CronCardState {
+  enabled: boolean;
+  /** Local send time, "HH:MM". */
+  time: string;
+  /** ISO timestamp of the last scheduled send, or null. */
+  lastSentAt: string | null;
+}
+
+/**
+ * Resolve the card state for a chat. Read-only: a chat that has never been
+ * registered renders as disabled with defaults (12:00) instead of erroring,
+ * so the menu item works before any question was asked.
+ */
+export async function resolveCronState(
+  chatId: number | string,
+  threadId: number | undefined,
+): Promise<CronCardState> {
+  const chat = await getChat(chatId, threadId);
+  if (!chat) {
+    return { enabled: false, time: "12:00", lastSentAt: null };
+  }
+  return {
+    enabled: chat.cron_enabled,
+    time: chat.cron_time.slice(0, 5),
+    lastSentAt: chat.cron_last_sent_at,
+  };
+}
+
+/** MarkdownV2 status card body (without the toggle keyboard). */
+export function buildCronStatusText(state: CronCardState): string {
+  const status = state.enabled ? "✅ включён" : "⏸ выключен";
+  const lastSent = state.lastSentAt ? state.lastSentAt.slice(0, 10) : "—";
+  return [
+    "⏰ *Ежедневный вопрос*",
+    "",
+    `Статус: ${status}`,
+    `Время: ${escapeMarkdownV2(state.time)}`,
+    `Последняя отправка: ${escapeMarkdownV2(lastSent)}`,
+  ].join("\n");
+}
+
+/** Single-row keyboard whose label offers the opposite action of the current state. */
+export function buildCronKeyboard(enabled: boolean): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: enabled ? MESSAGES.CRON_DISABLE : MESSAGES.CRON_ENABLE,
+          callback_data: JSON.stringify({ action: "cronToggle", enable: !enabled }),
+        },
+      ],
+    ],
+  };
+}
+
+function formatTime(time: string): string {
+  return escapeMarkdownV2(time.slice(0, 5));
 }
 
 export default async function cronCommand(
@@ -66,10 +126,9 @@ export default async function cronCommand(
         });
         return;
       }
-      const v = result.value;
       await bot.sendMessage(
         chatId,
-        `✅ Ежедневный вопрос включён\\. Время: ${escapeMarkdownV2(formatCronTime(v.cron_time))} \\(${escapeMarkdownV2(v.timezone)}\\)`,
+        `✅ Ежедневный вопрос включён\\. Время: ${formatTime(result.value.cron_time)}`,
         { ...threadOpts, parse_mode: "MarkdownV2" },
       );
       return;
@@ -92,23 +151,13 @@ export default async function cronCommand(
     }
 
     if (subcommand === "status") {
-      const chat = await getChat(chatId, threadId);
-      if (!chat) {
-        await bot.sendMessage(chatId, "ℹ️ Чат ещё не зарегистрирован. Задайте вопрос: /question", {
-          ...threadOpts,
-          parse_mode: "MarkdownV2",
-        });
-        return;
-      }
-      const status = chat.cron_enabled ? "✅ включён" : "⏸ выключен";
-      const lastSent = chat.cron_last_sent_at
-        ? new Date(chat.cron_last_sent_at).toISOString().slice(0, 10)
-        : "—";
-      await bot.sendMessage(
-        chatId,
-        `⏰ *Ежедневный вопрос*\n\nСтатус: ${status}\nВремя: ${escapeMarkdownV2(formatCronTime(chat.cron_time))} \\(${escapeMarkdownV2(chat.timezone)}\\)\nПоследняя отправка: ${escapeMarkdownV2(lastSent)}`,
-        { ...threadOpts, parse_mode: "MarkdownV2" },
-      );
+      // Unified with the menu item: full card + inline toggle button.
+      const state = await resolveCronState(chatId, threadId);
+      await bot.sendMessage(chatId, buildCronStatusText(state), {
+        ...threadOpts,
+        parse_mode: "MarkdownV2",
+        reply_markup: buildCronKeyboard(state.enabled),
+      });
       return;
     }
 
