@@ -116,23 +116,48 @@ function plural(n: number, one: string, few: string, many: string): string {
 /**
  * One line per complexity that has at least one loaded question:
  *   🎯 Лёгкие — 1 вопрос • 1 подсказка
- * Zero-count buckets are omitted. The load-failure line appears only
- * when there is at least one failure.
+ * followed by a Total row over all buckets, then the load-failure count
+ * when non-zero. Zero-count buckets are omitted.
  */
 export function formatStats(report: StatsReport): string {
   const lines: string[] = ["📊 *Статистика*", ""];
+
+  const detailLines: string[] = [];
+  let totalLoaded = 0;
+  let totalHints = 0;
 
   for (const complexity of DISPLAY_ORDER) {
     const bucket = report.sends.find((s) => s.complexity === complexity);
     if (!bucket || bucket.loaded === 0) continue;
 
-    lines.push(
+    totalLoaded += bucket.loaded;
+    totalHints += bucket.hints_asked;
+
+    detailLines.push(
       `${COMPLEXITY_EMOJI[complexity]} *${LABELS[complexity]}* — ${bucket.loaded} ${plural(
         bucket.loaded,
         "вопрос",
         "вопроса",
         "вопросов",
       )} • ${bucket.hints_asked} ${plural(bucket.hints_asked, "подсказка", "подсказки", "подсказок")}`,
+    );
+  }
+
+  if (detailLines.length > 0) {
+    lines.push(...detailLines);
+  }
+
+  if (totalLoaded > 0) {
+    if (detailLines.length > 0) {
+      lines.push("");
+    }
+    lines.push(
+      `🏆 *Всего* — ${totalLoaded} ${plural(
+        totalLoaded,
+        "вопрос",
+        "вопроса",
+        "вопросов",
+      )} • ${totalHints} ${plural(totalHints, "подсказка", "подсказки", "подсказок")}`,
     );
   }
 
