@@ -16,6 +16,11 @@
 create extension if not exists "pgcrypto";
 
 -- 1) Per-chat subscription (one row per chat OR chat+thread)
+--
+-- The unique constraint uses NULLS NOT DISTINCT (Postgres 15+): without it,
+-- Postgres treats NULL thread_id values as distinct, so (chat_id, NULL) rows
+-- would never conflict and the upsert in chatStore would insert duplicates
+-- for every private chat / non-forum group.
 create table if not exists "tq-bot-chats" (
   id                uuid primary key default gen_random_uuid(),
   chat_id           bigint not null,
@@ -28,7 +33,8 @@ create table if not exists "tq-bot-chats" (
   cron_last_sent_at timestamptz,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
-  unique (chat_id, thread_id)
+  constraint "tq-bot-chats_chat_thread_key"
+    unique nulls not distinct (chat_id, thread_id)
 );
 alter table "tq-bot-chats" enable row level security;
 

@@ -130,7 +130,8 @@ export async function getChat(
         "id, chat_id, thread_id, title, timezone, is_active, cron_enabled, cron_time, cron_last_sent_at",
       )
       .eq("chat_id", numericChatId)
-      .eq("thread_id", threadId ?? null)
+      // `.is()` (not `.eq()`) — PostgREST null matching; `eq.null` never matches.
+      .is("thread_id", threadId ?? null)
       .maybeSingle();
 
     if (error) {
