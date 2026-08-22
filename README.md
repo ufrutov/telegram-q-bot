@@ -23,7 +23,7 @@ telegram-q-bot/
 │   │   ├── callbackHandler.ts         # Button press router
 │   │   ├── commands/
 │   │   │   ├── cronCommand.ts              # /cron on|off|status|help
-│   │   │   └── statsCommand.ts             # /stats [7d|30d|all]
+│   │   │   └── statsCommand.ts             # /stats
 │   │   └── callbacks/
 │   │       ├── questionCallback.ts          # Menu selection handler
 │   │       ├── answerCallback.ts            # Answer reveal handler
@@ -208,20 +208,20 @@ The bot authenticates with `gotquestions.online` API using JWT tokens via NextAu
 
 ## Commands
 
-| Command                 | Description                                            |
-| ----------------------- | ------------------------------------------------------ |
-| `/question`             | Random question (any difficulty)                       |
-| `/question <id>`        | Load specific question by ID                           |
-| `/questioneasy`         | Random easy question                                   |
-| `/questionmedium`       | Random medium question                                 |
-| `/questionhard`         | Random hard question                                   |
-| `/menu`                 | Interactive difficulty selection menu                  |
-| `/pack`                 | Display random question pack with interactive keyboard |
-| `/pack <id>`            | Display specific pack by ID (e.g., `/pack 6449`)       |
-| `/cron on`              | Enable the daily 12:00 question (chat's timezone)      |
-| `/cron off`             | Disable the daily question                             |
-| `/cron status`          | Show current state and last send date                  |
-| `/stats [7d\|30d\|all]` | Show load counts, hint rates, complexity breakdown     |
+| Command           | Description                                                      |
+| ----------------- | ---------------------------------------------------------------- |
+| `/question`       | Random question (any difficulty)                                 |
+| `/question <id>`  | Load specific question by ID                                     |
+| `/questioneasy`   | Random easy question                                             |
+| `/questionmedium` | Random medium question                                           |
+| `/questionhard`   | Random hard question                                             |
+| `/menu`           | Interactive difficulty selection menu                            |
+| `/pack`           | Display random question pack with interactive keyboard           |
+| `/pack <id>`      | Display specific pack by ID (e.g., `/pack 6449`)                 |
+| `/cron on`        | Enable the daily 12:00 question (chat's timezone)                |
+| `/cron off`       | Disable the daily question                                       |
+| `/cron status`    | Show current state and last send date                            |
+| `/stats`          | Lifetime counts per complexity: questions loaded and hints asked |
 
 ### Pack Command
 

@@ -1,13 +1,14 @@
 /**
- * Stats Command Handler - /stats [7d|30d|all]
+ * Stats Command Handler - /stats
  *
- * Reads tq-bot-question_sends and tq-bot-load_failures and renders a
- * MarkdownV2 report. Falls back to a friendly message if the DB is empty.
+ * Reads lifetime aggregates from tq-bot-question_sends and
+ * tq-bot-load_failures via the stats service and renders a MarkdownV2
+ * report. Falls back to a friendly message if the chat has no data yet.
  */
 
 import type TelegramBot from "node-telegram-bot-api";
 
-import { formatStats, getStats, type StatsWindow } from "@/services/stats.js";
+import { formatStats, getStats } from "@/services/stats.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import type { ThreadOpts } from "@/types/telegram.js";
 
@@ -15,17 +16,6 @@ interface TelegramMessage {
   chat?: { id?: number | string };
   text?: string;
   message_thread_id?: number;
-}
-
-const VALID_WINDOWS = new Set<StatsWindow>(["7d", "30d", "all"]);
-
-function parseWindow(text: string): StatsWindow {
-  const parts = text.split(/\s+/).slice(1);
-  const arg = (parts[0] ?? "7d").toLowerCase();
-  if (VALID_WINDOWS.has(arg as StatsWindow)) {
-    return arg as StatsWindow;
-  }
-  return "7d";
 }
 
 export default async function statsCommand(
@@ -37,10 +27,9 @@ export default async function statsCommand(
   if (!chatId) return;
 
   const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
-  const window = parseWindow(message.text ?? "");
 
   try {
-    const result = await getStats(chatId, threadId, window);
+    const result = await getStats(chatId, threadId);
     if (!result.ok) {
       await bot.sendMessage(chatId, `❌ ${escapeMarkdownV2(result.error)}`, {
         ...threadOpts,
@@ -50,10 +39,11 @@ export default async function statsCommand(
     }
 
     const report = result.value;
-    if (report.totalLoaded === 0 && report.failures === 0) {
+    const totalLoaded = report.sends.reduce((sum, b) => sum + b.loaded, 0);
+    if (totalLoaded === 0 && report.failures === 0) {
       await bot.sendMessage(
         chatId,
-        `📊 *Статистика* \\(${escapeMarkdownV2(window)}\\)\n\nПока нет данных. Задайте вопрос: /question`,
+        "📊 *Статистика*\n\nПока нет данных\\. Задайте вопрос: /question",
         { ...threadOpts, parse_mode: "MarkdownV2" },
       );
       return;
