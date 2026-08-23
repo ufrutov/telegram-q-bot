@@ -17,11 +17,16 @@ export const COMPLEXITY_EMOJI: Record<Complexity, string> = {
 };
 
 export const MESSAGES = {
-  MENU_TITLE: "❓ Выбор категории вопроса:",
+  MENU_TITLE: "❓ Меню:",
   DIFFICULTY_EASY: "🎯 Лёгкий вопрос",
   DIFFICULTY_MEDIUM: "💡 Стандартный вопрос",
   DIFFICULTY_HARD: "🤯 Сложный вопрос",
   DIFFICULTY_RANDOM: "🌀 Случайный вопрос",
+  MENU_STATS: "📊 Статистика",
+  MENU_CRON: "⏰ Ежедневный вопрос",
+
+  CRON_ENABLE: "✅ Включить",
+  CRON_DISABLE: "⏸ Выключить",
 
   LOADING_QUESTION: "🔄 Загружаю вопрос...",
   LOADING_PACK: "🔄 Загружаю пакет...",
@@ -34,7 +39,10 @@ export const MESSAGES = {
   BUTTON_ANSWER: "📖 Ответ",
   BUTTON_HINT: "✨ Подсказка",
   BUTTON_PLAY_PACK: "📦 Играть весь пакет",
+  BUTTON_ANSWERED: "✅ Засчитать ответ",
   BUTTON_QUESTION_PREFIX: "❓ Вопрос",
+
+  ANSWER_COUNTED: "✅ Ответ засчитан\nПосмотреть статистику можно в меню или командой /stats.",
 
   ERROR_LOADING_QUESTION: "❌ Ошибка при загрузке вопроса",
   ERROR_LOADING_ANSWER: "❌ Ошибка при загрузке ответа",

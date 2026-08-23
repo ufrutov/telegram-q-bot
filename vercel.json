@@ -6,8 +6,12 @@
   },
   "crons": [
     {
-      "path": "/api/cron/daily-question",
+      "path": "/api/cron/ticker",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/ticker",
+      "schedule": "0 10 * * *"
     }
   ]
 }

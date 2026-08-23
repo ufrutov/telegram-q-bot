@@ -23,6 +23,11 @@ export interface ThreadOpts {
  * - `action: "question"` — user picked a difficulty in /menu
  * - `action: "packQuestion"` — user picked a numbered question from a pack keyboard
  * - `action: "pack"` — user clicked "Играть весь пакет" on an answer message
+ * - `action: "stats"` — user clicked "📊 Статистика" in /menu
+ * - `action: "cronStatus"` — user clicked "⏰ Ежедневный вопрос" in /menu
+ * - `action: "cronToggle"` — user clicked the on/off toggle on a cron status card
+ * - `action: "answered"` — user clicked "✅ Засчитать ответ"; `mid` is the
+ *   telegram_message_id of the original question row in tq-bot-question_sends
  * - `answerKey` (no action) — user clicked "📖 Ответ" on a question message
  * - `hintKey` (no action) — user clicked "✨ Подсказка" on a question message
  */
@@ -30,6 +35,10 @@ export type CallbackAction =
   | { action: "question"; complexity: Complexity }
   | { action: "packQuestion"; questionId: string | number }
   | { action: "pack"; packId: string | number }
+  | { action: "stats" }
+  | { action: "cronStatus" }
+  | { action: "cronToggle"; enable: boolean }
+  | { action: "answered"; mid: number }
   | { answerKey: string }
   | { hintKey: string };
 

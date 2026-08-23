@@ -8,6 +8,8 @@ import type { RedisClientType } from "redis";
 import { sendQuestionMessage } from "@/services/questionSender.js";
 import { sendPackMessage } from "@/services/packSender.js";
 import { MESSAGES } from "@/bot/constants.js";
+import cronCommand from "./commands/cronCommand.js";
+import statsCommand from "./commands/statsCommand.js";
 import type { Complexity } from "@/types/question.js";
 
 interface TelegramMessage {
@@ -122,6 +124,18 @@ async function handleMenuCommand(
             }),
           },
         ],
+        [
+          {
+            text: MESSAGES.MENU_STATS,
+            callback_data: JSON.stringify({ action: "stats" }),
+          },
+        ],
+        [
+          {
+            text: MESSAGES.MENU_CRON,
+            callback_data: JSON.stringify({ action: "cronStatus" }),
+          },
+        ],
       ],
     },
   });
@@ -160,7 +174,11 @@ export default async function messageHandler(
   if (!messageText) return;
 
   try {
-    if (messageText.startsWith("/question")) {
+    if (messageText.startsWith("/cron")) {
+      await cronCommand(bot, message, threadId);
+    } else if (messageText.startsWith("/stats")) {
+      await statsCommand(bot, message, threadId);
+    } else if (messageText.startsWith("/question")) {
       await handleQuestionCommand(bot, redis, chatId, messageText, threadId);
     } else if (messageText.startsWith("/menu")) {
       await handleMenuCommand(bot, chatId, threadId);

@@ -9,6 +9,8 @@ import type { RedisClientType } from "redis";
 
 import QuestionLoader from "@/lib/QuestionLoader/QuestionLoader.js";
 import { MESSAGES } from "@/bot/constants.js";
+import { recordQuestionSent } from "@/services/questionSendStore.js";
+import { recordLoadFailure } from "@/services/loadFailureStore.js";
 import type { Complexity, Question } from "@/types/question.js";
 import type { ThreadOpts } from "@/types/telegram.js";
 
@@ -79,6 +81,12 @@ export async function sendQuestionMessage(
     const message = loadError instanceof Error ? loadError.message : String(loadError);
     const statusMatch = message.match(/HTTP error! status: (\d+)/);
     const statusCode = statusMatch ? ` (${statusMatch[1]})` : "";
+    await recordLoadFailure({
+      chatId,
+      threadId,
+      complexity,
+      error: message.slice(0, 1000),
+    });
     await bot.sendMessage(chatId, `${MESSAGES.ERROR_LOADING_QUESTION}${statusCode}`, threadOpts);
     throw loadError;
   }
@@ -156,6 +164,13 @@ export async function sendQuestionMessage(
         await redisClient.setEx(hintKey, REDIS_TTL_SECONDS, JSON.stringify(hintPayload));
       }
 
+      await recordQuestionSent({
+        chatId,
+        threadId,
+        telegramMessageId: separate.message_id,
+        questionId: questionData.id,
+        complexity,
+      });
       return { answerKey, questionMessageId: separate.message_id };
     } catch (imgError) {
       console.error("Error sending question media group:", imgError);
@@ -196,6 +211,13 @@ export async function sendQuestionMessage(
     await redisClient.setEx(hintKey, REDIS_TTL_SECONDS, JSON.stringify(hintPayload));
   }
 
+  await recordQuestionSent({
+    chatId,
+    threadId,
+    telegramMessageId: questionMessage.message_id,
+    questionId: questionData.id,
+    complexity,
+  });
   return { answerKey, questionMessageId: questionMessage.message_id };
 }
 

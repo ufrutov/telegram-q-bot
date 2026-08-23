@@ -22,7 +22,7 @@ const OUTPUT = ".vercel/output";
 
 const ENTRY_POINTS = [
   { src: "api/webhook.js", route: "api/webhook" },
-  { src: "api/cron/daily-question.js", route: "api/cron/daily-question" },
+  { src: "api/cron/ticker.js", route: "api/cron/ticker" },
 ];
 
 const RUNTIME = "nodejs22.x";

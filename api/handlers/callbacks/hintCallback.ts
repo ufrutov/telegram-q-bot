@@ -8,6 +8,7 @@ import type { RedisClientType } from "redis";
 import { generateHint, formatErrorMessage } from "@/services/openrouter.js";
 import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
+import { recordHintResult } from "@/services/questionSendStore.js";
 import type { ThreadOpts } from "@/types/telegram.js";
 
 interface TelegramCallbackQuery {
@@ -80,6 +81,8 @@ export default async function hintCallback(
 
     // Generate hint using AI
     let hint: string;
+    let hintOk = false;
+    let hintError: string | undefined;
     try {
       const loadingMsg = await bot.sendMessage(chatId, MESSAGES.HINT_LOADING, threadOpts);
       hint = await generateHint(question, answer, description, questionPreview);
@@ -88,9 +91,11 @@ export default async function hintCallback(
       } catch {
         // ignore
       }
+      hintOk = true;
     } catch (genError) {
       console.error("Error generating hint:", (genError as Error).message);
       hint = formatErrorMessage(genError);
+      hintError = (genError as Error).message.slice(0, 500);
     }
 
     const messageToReply = questionMessageId ?? callbackQuery.message?.message_id ?? 0;
@@ -100,6 +105,17 @@ export default async function hintCallback(
       reply_to_message_id: messageToReply,
       disable_web_page_preview: true,
     });
+
+    const buttonMessageId = callbackQuery.message?.message_id;
+    if (buttonMessageId !== undefined) {
+      await recordHintResult({
+        chatId,
+        threadId,
+        telegramMessageId: buttonMessageId,
+        ok: hintOk,
+        ...(hintError ? { error: hintError } : {}),
+      });
+    }
 
     if (redis) {
       await redis.del(hintKey);
