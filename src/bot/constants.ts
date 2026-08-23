@@ -39,7 +39,11 @@ export const MESSAGES = {
   BUTTON_ANSWER: "📖 Ответ",
   BUTTON_HINT: "✨ Подсказка",
   BUTTON_PLAY_PACK: "📦 Играть весь пакет",
+  BUTTON_ANSWERED: "✅ Ответ найден",
   BUTTON_QUESTION_PREFIX: "❓ Вопрос",
+
+  ANSWER_COUNTED:
+    "✅ Ответ засчитан\nПосмотреть статистику можно в меню или командой /stats.",
 
   ERROR_LOADING_QUESTION: "❌ Ошибка при загрузке вопроса",
   ERROR_LOADING_ANSWER: "❌ Ошибка при загрузке ответа",

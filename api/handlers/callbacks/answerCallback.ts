@@ -101,6 +101,10 @@ export default async function answerCallback(
         });
       }
     } else {
+      // `messageId` is the message that carried the 📖/✨ buttons — the same
+      // telegram_message_id stored in tq-bot-question_sends. Embedding it in
+      // the callback lets answeredCallback flag the right row, because the
+      // button below lives on a NEW message with a different id.
       const replyMarkup = packId
         ? {
             inline_keyboard: [
@@ -108,6 +112,13 @@ export default async function answerCallback(
                 {
                   text: MESSAGES.BUTTON_PLAY_PACK,
                   callback_data: JSON.stringify({ action: "pack", packId }),
+                },
+                {
+                  text: MESSAGES.BUTTON_ANSWERED,
+                  callback_data: JSON.stringify({
+                    action: "answered",
+                    mid: messageId,
+                  }),
                 },
               ],
             ],

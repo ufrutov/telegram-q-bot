@@ -26,6 +26,8 @@ export interface ThreadOpts {
  * - `action: "stats"` — user clicked "📊 Статистика" in /menu
  * - `action: "cronStatus"` — user clicked "⏰ Ежедневный вопрос" in /menu
  * - `action: "cronToggle"` — user clicked the on/off toggle on a cron status card
+ * - `action: "answered"` — user clicked "✅ Ответ найден"; `mid` is the
+ *   telegram_message_id of the original question row in tq-bot-question_sends
  * - `answerKey` (no action) — user clicked "📖 Ответ" on a question message
  * - `hintKey` (no action) — user clicked "✨ Подсказка" on a question message
  */
@@ -36,6 +38,7 @@ export type CallbackAction =
   | { action: "stats" }
   | { action: "cronStatus" }
   | { action: "cronToggle"; enable: boolean }
+  | { action: "answered"; mid: number }
   | { answerKey: string }
   | { hintKey: string };
 

@@ -122,3 +122,59 @@ export async function recordHintResult(args: RecordHintResultArgs): Promise<void
     console.warn("[supabase] recordHintResult unexpected error:", message);
   }
 }
+
+export type AnsweredResult = { ok: true } | { ok: false; error: string };
+
+interface RecordQuestionAnsweredArgs {
+  chatId: number | string;
+  threadId: number | undefined;
+  /** telegram_message_id of the original question row in tq-bot-question_sends. */
+  telegramMessageId: number;
+}
+
+/**
+ * Flag the question as answered (question_answered = TRUE).
+ *
+ * Unlike the other store functions this one SURFACES the outcome: the
+ * ✅ Ответ найден button flow only removes itself and confirms after a
+ * successful write, so DB failures must reach the caller for retry.
+ *
+ * A missing row (question sent before the integration was deployed)
+ * counts as ok with no effect — nothing to flag.
+ */
+export async function recordQuestionAnswered(
+  args: RecordQuestionAnsweredArgs,
+): Promise<AnsweredResult> {
+  const { chatId, threadId, telegramMessageId } = args;
+
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { ok: false, error: "DB is not configured" };
+  }
+
+  const chat = await getOrCreateChat(chatId, threadId);
+  if (!chat) {
+    return { ok: false, error: "Chat could not be registered" };
+  }
+
+  try {
+    const { error } = await supabase
+      .from(TABLES.questionSends)
+      .update({
+        question_answered: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("chat_id", chat.id)
+      .eq("telegram_message_id", telegramMessageId);
+
+    if (error) {
+      console.warn("[supabase] recordQuestionAnswered failed:", error.message);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[supabase] recordQuestionAnswered unexpected error:", message);
+    return { ok: false, error: message };
+  }
+}

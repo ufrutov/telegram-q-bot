@@ -12,6 +12,7 @@ import packQuestionCallback from "./callbacks/packQuestionCallback.js";
 import menuStatsCallback from "./callbacks/menuStatsCallback.js";
 import cronStatusCallback from "./callbacks/cronStatusCallback.js";
 import cronToggleCallback from "./callbacks/cronToggleCallback.js";
+import answeredCallback from "./callbacks/answeredCallback.js";
 import { sendPackMessage } from "@/services/packSender.js";
 import type { CallbackAction } from "@/types/telegram.js";
 
@@ -34,6 +35,7 @@ function isCallbackAction(value: unknown): value is CallbackAction {
   if (v.action === "stats") return true;
   if (v.action === "cronStatus") return true;
   if (v.action === "cronToggle") return typeof v.enable === "boolean";
+  if (v.action === "answered") return typeof v.mid === "number";
   if (typeof v.answerKey === "string") return true;
   if (typeof v.hintKey === "string") return true;
   return false;
@@ -96,6 +98,8 @@ export default async function callbackHandler(
       await cronStatusCallback(bot, callbackQuery, threadId);
     } else if (parsed.action === "cronToggle") {
       await cronToggleCallback(bot, callbackQuery, parsed, threadId);
+    } else if (parsed.action === "answered") {
+      await answeredCallback(bot, callbackQuery, parsed, threadId);
     }
   } else if ("answerKey" in parsed) {
     await answerCallback(bot, redis, callbackQuery, parsed, threadId);
