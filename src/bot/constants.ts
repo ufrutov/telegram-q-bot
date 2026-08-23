@@ -42,8 +42,7 @@ export const MESSAGES = {
   BUTTON_ANSWERED: "✅ Ответ найден",
   BUTTON_QUESTION_PREFIX: "❓ Вопрос",
 
-  ANSWER_COUNTED:
-    "✅ Ответ засчитан\nПосмотреть статистику можно в меню или командой /stats.",
+  ANSWER_COUNTED: "✅ Ответ засчитан\nПосмотреть статистику можно в меню или командой /stats.",
 
   ERROR_LOADING_QUESTION: "❌ Ошибка при загрузке вопроса",
   ERROR_LOADING_ANSWER: "❌ Ошибка при загрузке ответа",
