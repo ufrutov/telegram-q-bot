@@ -137,15 +137,18 @@ export async function getChat(
   }
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from(TABLES.chats)
       .select(
         "id, chat_id, thread_id, title, timezone, is_active, cron_enabled, cron_time, cron_last_sent_at",
       )
-      .eq("chat_id", numericChatId)
-      // `.is()` (not `.eq()`) — PostgREST null matching; `eq.null` never matches.
-      .is("thread_id", threadId ?? null)
-      .maybeSingle();
+      .eq("chat_id", numericChatId);
+
+    // PostgREST operators differ by nullness: `is` accepts only null/true/false,
+    // so real thread ids must filter with plain `eq` (is.7 is a parse error).
+    query = threadId == null ? query.is("thread_id", null) : query.eq("thread_id", threadId);
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.warn("[supabase] getChat select failed:", error.message);
