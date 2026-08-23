@@ -115,9 +115,10 @@ function plural(n: number, one: string, few: string, many: string): string {
 
 /**
  * One line per complexity that has at least one loaded question:
- *   🎯 Лёгкие — 1 вопрос • 1 подсказка
+ *   🎯 Лёгкие — 1 вопрос • 1 подсказка • ✅ 1 правильный ответ
  * followed by a Total row over all buckets, then the load-failure count
- * when non-zero. Zero-count buckets are omitted.
+ * when non-zero. Zero-count buckets are omitted; the answered segment is
+ * appended only when the count is above zero.
  */
 export function formatStats(report: StatsReport): string {
   const lines: string[] = ["📊 *Статистика*", ""];
@@ -125,6 +126,7 @@ export function formatStats(report: StatsReport): string {
   const detailLines: string[] = [];
   let totalLoaded = 0;
   let totalHints = 0;
+  let totalAnswered = 0;
 
   for (const complexity of DISPLAY_ORDER) {
     const bucket = report.sends.find((s) => s.complexity === complexity);
@@ -132,15 +134,23 @@ export function formatStats(report: StatsReport): string {
 
     totalLoaded += bucket.loaded;
     totalHints += bucket.hints_asked;
+    totalAnswered += bucket.answered;
 
-    detailLines.push(
-      `${COMPLEXITY_EMOJI[complexity]} *${LABELS[complexity]}* — ${bucket.loaded} ${plural(
-        bucket.loaded,
-        "вопрос",
-        "вопроса",
-        "вопросов",
-      )} • ${bucket.hints_asked} ${plural(bucket.hints_asked, "подсказка", "подсказки", "подсказок")}`,
-    );
+    let line = `${COMPLEXITY_EMOJI[complexity]} *${LABELS[complexity]}* — ${bucket.loaded} ${plural(
+      bucket.loaded,
+      "вопрос",
+      "вопроса",
+      "вопросов",
+    )} • ${bucket.hints_asked} ${plural(bucket.hints_asked, "подсказка", "подсказки", "подсказок")}`;
+    if (bucket.answered > 0) {
+      line += ` • ✅ ${bucket.answered} ${plural(
+        bucket.answered,
+        "правильный ответ",
+        "правильных ответа",
+        "правильных ответов",
+      )}`;
+    }
+    detailLines.push(line);
   }
 
   if (detailLines.length > 0) {
@@ -151,14 +161,21 @@ export function formatStats(report: StatsReport): string {
     if (detailLines.length > 0) {
       lines.push("");
     }
-    lines.push(
-      `🏆 *Всего* — ${totalLoaded} ${plural(
-        totalLoaded,
-        "вопрос",
-        "вопроса",
-        "вопросов",
-      )} • ${totalHints} ${plural(totalHints, "подсказка", "подсказки", "подсказок")}`,
-    );
+    let totalLine = `🏆 *Всего* — ${totalLoaded} ${plural(
+      totalLoaded,
+      "вопрос",
+      "вопроса",
+      "вопросов",
+    )} • ${totalHints} ${plural(totalHints, "подсказка", "подсказки", "подсказок")}`;
+    if (totalAnswered > 0) {
+      totalLine += ` • ✅ ${totalAnswered} ${plural(
+        totalAnswered,
+        "правильный ответ",
+        "правильных ответа",
+        "правильных ответов",
+      )}`;
+    }
+    lines.push(totalLine);
   }
 
   if (report.failures > 0) {
