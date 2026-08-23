@@ -39,7 +39,7 @@ export const MESSAGES = {
   BUTTON_ANSWER: "📖 Ответ",
   BUTTON_HINT: "✨ Подсказка",
   BUTTON_PLAY_PACK: "📦 Играть весь пакет",
-  BUTTON_ANSWERED: "✅ Ответ найден",
+  BUTTON_ANSWERED: "✅ Засчитать ответ",
   BUTTON_QUESTION_PREFIX: "❓ Вопрос",
 
   ANSWER_COUNTED: "✅ Ответ засчитан\nПосмотреть статистику можно в меню или командой /stats.",

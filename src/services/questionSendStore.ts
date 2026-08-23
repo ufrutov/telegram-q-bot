@@ -136,7 +136,7 @@ interface RecordQuestionAnsweredArgs {
  * Flag the question as answered (question_answered = TRUE).
  *
  * Unlike the other store functions this one SURFACES the outcome: the
- * ✅ Ответ найден button flow only removes itself and confirms after a
+ * ✅ Засчитать ответ button flow only removes itself and confirms after a
  * successful write, so DB failures must reach the caller for retry.
  *
  * A missing row (question sent before the integration was deployed)

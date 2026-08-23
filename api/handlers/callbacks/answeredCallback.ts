@@ -1,5 +1,5 @@
 /**
- * Answered Callback Handler - "✅ Ответ найден" button on an answer message
+ * Answered Callback Handler - "✅ Засчитать ответ" button on an answer message
  *
  * Flow:
  *   1. Flag tq-bot-question_sends.question_answered = TRUE for the row
@@ -34,7 +34,7 @@ interface TelegramCallbackQuery {
 }
 
 /**
- * Copy of the current keyboard minus every ✅ Ответ найден button.
+ * Copy of the current keyboard minus every ✅ Засчитать ответ button.
  * Empty rows are dropped; other buttons (e.g. Играть весь пакет) survive.
  */
 function stripAnsweredButton(markup: TelegramCallbackQuery["message"]): InlineKeyboardMarkup {
