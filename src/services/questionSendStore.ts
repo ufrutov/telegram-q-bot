@@ -21,6 +21,7 @@ import { getOrCreateChat } from "./chatStore.js";
 interface RecordQuestionSentArgs {
   chatId: number | string;
   threadId: number | undefined;
+  title?: string;
   telegramMessageId: number;
   questionId: string | number | null;
   complexity: Complexity;
@@ -32,14 +33,14 @@ interface RecordQuestionSentArgs {
  * call is a no-op so the bot keeps working.
  */
 export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<void> {
-  const { chatId, threadId, telegramMessageId, questionId, complexity } = args;
+  const { chatId, threadId, telegramMessageId, questionId, complexity, title } = args;
 
   const supabase = getSupabaseClient();
   if (!supabase) {
     return;
   }
 
-  const chat = await getOrCreateChat(chatId, threadId);
+  const chat = await getOrCreateChat(chatId, threadId, title);
   if (!chat) {
     return;
   }
@@ -67,6 +68,7 @@ export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<
 interface RecordHintResultArgs {
   chatId: number | string;
   threadId: number | undefined;
+  title?: string;
   telegramMessageId: number;
   ok: boolean;
   error?: string;
@@ -81,14 +83,14 @@ interface RecordHintResultArgs {
  * the update is silently skipped — hint state is best-effort.
  */
 export async function recordHintResult(args: RecordHintResultArgs): Promise<void> {
-  const { chatId, threadId, telegramMessageId, ok, error } = args;
+  const { chatId, threadId, telegramMessageId, ok, error, title } = args;
 
   const supabase = getSupabaseClient();
   if (!supabase) {
     return;
   }
 
-  const chat = await getOrCreateChat(chatId, threadId);
+  const chat = await getOrCreateChat(chatId, threadId, title);
   if (!chat) {
     return;
   }
@@ -128,6 +130,7 @@ export type AnsweredResult = { ok: true } | { ok: false; error: string };
 interface RecordQuestionAnsweredArgs {
   chatId: number | string;
   threadId: number | undefined;
+  title?: string;
   /** telegram_message_id of the original question row in tq-bot-question_sends. */
   telegramMessageId: number;
 }
@@ -145,14 +148,14 @@ interface RecordQuestionAnsweredArgs {
 export async function recordQuestionAnswered(
   args: RecordQuestionAnsweredArgs,
 ): Promise<AnsweredResult> {
-  const { chatId, threadId, telegramMessageId } = args;
+  const { chatId, threadId, telegramMessageId, title } = args;
 
   const supabase = getSupabaseClient();
   if (!supabase) {
     return { ok: false, error: "DB is not configured" };
   }
 
-  const chat = await getOrCreateChat(chatId, threadId);
+  const chat = await getOrCreateChat(chatId, threadId, title);
   if (!chat) {
     return { ok: false, error: "Chat could not be registered" };
   }

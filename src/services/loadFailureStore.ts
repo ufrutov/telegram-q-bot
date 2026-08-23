@@ -17,19 +17,20 @@ import { getOrCreateChat } from "./chatStore.js";
 interface RecordLoadFailureArgs {
   chatId: number | string;
   threadId: number | undefined;
+  title?: string;
   complexity: Complexity;
   error: string;
 }
 
 export async function recordLoadFailure(args: RecordLoadFailureArgs): Promise<void> {
-  const { chatId, threadId, complexity, error } = args;
+  const { chatId, threadId, complexity, error, title } = args;
 
   const supabase = getSupabaseClient();
   if (!supabase) {
     return;
   }
 
-  const chat = await getOrCreateChat(chatId, threadId);
+  const chat = await getOrCreateChat(chatId, threadId, title);
   if (!chat) {
     return;
   }

@@ -8,11 +8,18 @@ import type { RedisClientType } from "redis";
 import { sendQuestionMessage } from "@/services/questionSender.js";
 import { MESSAGES } from "@/bot/constants.js";
 import type { CallbackAction } from "@/types/telegram.js";
+import { resolveChatTitle } from "@/utils/telegramChat.js";
 
 interface TelegramCallbackQuery {
   id: string;
   message?: {
-    chat?: { id?: number | string };
+    chat?: {
+      id?: number | string;
+      title?: string;
+      first_name?: string;
+      last_name?: string;
+      username?: string;
+    };
     message_id: number;
   };
 }
@@ -42,6 +49,7 @@ export default async function packQuestionCallback(
       "random",
       String(questionId),
       threadId,
+      resolveChatTitle(callbackQuery.message?.chat),
     );
   } catch (error) {
     console.error("Error handling pack question callback:", error);

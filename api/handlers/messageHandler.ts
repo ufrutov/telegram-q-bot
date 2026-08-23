@@ -11,9 +11,16 @@ import { MESSAGES } from "@/bot/constants.js";
 import cronCommand from "./commands/cronCommand.js";
 import statsCommand from "./commands/statsCommand.js";
 import type { Complexity } from "@/types/question.js";
+import { resolveChatTitle } from "@/utils/telegramChat.js";
 
 interface TelegramMessage {
-  chat?: { id?: number | string };
+  chat?: {
+    id?: number | string;
+    title?: string;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+  };
   text?: string;
   message_thread_id?: number;
 }
@@ -61,6 +68,7 @@ async function handleQuestionCommand(
   chatId: number | string,
   messageText: string,
   threadId: number | undefined,
+  title: string | undefined,
 ): Promise<void> {
   const questionId = extractQuestionId(messageText);
   const parts = messageText.split(/\s+/);
@@ -73,6 +81,7 @@ async function handleQuestionCommand(
     complexity,
     questionId ?? undefined,
     threadId,
+    title,
   );
 }
 
@@ -179,7 +188,14 @@ export default async function messageHandler(
     } else if (messageText.startsWith("/stats")) {
       await statsCommand(bot, message, threadId);
     } else if (messageText.startsWith("/question")) {
-      await handleQuestionCommand(bot, redis, chatId, messageText, threadId);
+      await handleQuestionCommand(
+        bot,
+        redis,
+        chatId,
+        messageText,
+        threadId,
+        resolveChatTitle(message.chat),
+      );
     } else if (messageText.startsWith("/menu")) {
       await handleMenuCommand(bot, chatId, threadId);
     } else if (messageText.startsWith("/pack")) {
