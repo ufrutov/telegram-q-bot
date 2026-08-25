@@ -8,11 +8,18 @@ import type { RedisClientType } from "redis";
 import { sendQuestionMessage } from "@/services/questionSender.js";
 import { MESSAGES } from "@/bot/constants.js";
 import type { CallbackAction } from "@/types/telegram.js";
+import { resolveChatTitle } from "@/utils/telegramChat.js";
 
 interface TelegramCallbackQuery {
   id: string;
   message?: {
-    chat?: { id?: number | string };
+    chat?: {
+      id?: number | string;
+      title?: string;
+      first_name?: string;
+      last_name?: string;
+      username?: string;
+    };
     message_id: number;
   };
 }
@@ -31,7 +38,15 @@ export default async function questionCallback(
 
   try {
     await bot.answerCallbackQuery(callbackQuery.id);
-    await sendQuestionMessage(bot, redis ?? undefined, chatId, complexity, undefined, threadId);
+    await sendQuestionMessage(
+      bot,
+      redis ?? undefined,
+      chatId,
+      complexity,
+      undefined,
+      threadId,
+      resolveChatTitle(callbackQuery.message?.chat),
+    );
 
     try {
       await bot.deleteMessage(chatId, callbackQuery.message?.message_id ?? 0);

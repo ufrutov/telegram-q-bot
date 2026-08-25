@@ -18,11 +18,18 @@ import type TelegramBot from "node-telegram-bot-api";
 
 import { getChat, setCronEnabled } from "@/services/chatStore.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
+import { resolveChatTitle } from "@/utils/telegramChat.js";
 import { MESSAGES } from "@/bot/constants.js";
 import type { InlineKeyboardMarkup, ThreadOpts } from "@/types/telegram.js";
 
 interface TelegramMessage {
-  chat?: { id?: number | string };
+  chat?: {
+    id?: number | string;
+    title?: string;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+  };
   text?: string;
   message_thread_id?: number;
 }
@@ -118,7 +125,7 @@ export default async function cronCommand(
     }
 
     if (subcommand === "on") {
-      const result = await setCronEnabled(chatId, threadId, true);
+      const result = await setCronEnabled(chatId, threadId, true, resolveChatTitle(message.chat));
       if (!result.ok) {
         await bot.sendMessage(chatId, `❌ ${escapeMarkdownV2(result.error)}`, {
           ...threadOpts,
@@ -135,7 +142,7 @@ export default async function cronCommand(
     }
 
     if (subcommand === "off") {
-      const result = await setCronEnabled(chatId, threadId, false);
+      const result = await setCronEnabled(chatId, threadId, false, resolveChatTitle(message.chat));
       if (!result.ok) {
         await bot.sendMessage(chatId, `❌ ${escapeMarkdownV2(result.error)}`, {
           ...threadOpts,

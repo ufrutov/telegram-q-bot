@@ -61,6 +61,7 @@ export async function sendQuestionMessage(
   complexity: Complexity = "random",
   questionId: string | undefined = undefined,
   threadId: number | undefined = undefined,
+  title?: string,
 ): Promise<SendQuestionResult> {
   const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
 
@@ -86,6 +87,7 @@ export async function sendQuestionMessage(
       threadId,
       complexity,
       error: message.slice(0, 1000),
+      title,
     });
     await bot.sendMessage(chatId, `${MESSAGES.ERROR_LOADING_QUESTION}${statusCode}`, threadOpts);
     throw loadError;
@@ -170,6 +172,7 @@ export async function sendQuestionMessage(
         telegramMessageId: separate.message_id,
         questionId: questionData.id,
         complexity,
+        title,
       });
       return { answerKey, questionMessageId: separate.message_id };
     } catch (imgError) {
@@ -217,6 +220,7 @@ export async function sendQuestionMessage(
     telegramMessageId: questionMessage.message_id,
     questionId: questionData.id,
     complexity,
+    title,
   });
   return { answerKey, questionMessageId: questionMessage.message_id };
 }

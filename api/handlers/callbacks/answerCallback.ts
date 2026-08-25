@@ -7,7 +7,7 @@ import type { RedisClientType } from "redis";
 
 import { TARGET_DOMAIN, MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
-import type { ThreadOpts } from "@/types/telegram.js";
+import type { InlineButton, InlineKeyboardMarkup, ThreadOpts } from "@/types/telegram.js";
 
 interface TelegramCallbackQuery {
   id: string;
@@ -76,7 +76,30 @@ export default async function answerCallback(
     const { answer, answerPreview, questionMessageId, packId } = answerData;
     const messageToReply = questionMessageId ?? messageId;
 
+    // Shared action row: 📦 Играть весь пакет when the answer belongs to a
+    // pack, ✅ Засчитать ответ always.
+    //
+    // `messageId` is the message that carried the 📖/✨ buttons — the same
+    // telegram_message_id stored in tq-bot-question_sends. Embedding it in
+    // the callback lets answeredCallback flag the right row, because these
+    // buttons live on a NEW message with a different id.
+    const actionsRow: InlineButton[] = [];
+    if (packId) {
+      actionsRow.push({
+        text: MESSAGES.BUTTON_PLAY_PACK,
+        callback_data: JSON.stringify({ action: "pack", packId }),
+      });
+    }
+    actionsRow.push({
+      text: MESSAGES.BUTTON_ANSWERED,
+      callback_data: JSON.stringify({ action: "answered", mid: messageId }),
+    });
+    const replyMarkup: InlineKeyboardMarkup = { inline_keyboard: [actionsRow] };
+
     if (answerPreview && answerPreview.length > 0) {
+      // Telegram API constraint: sendMediaGroup cannot carry an inline
+      // keyboard, so the buttons ride on a small carrier message after the
+      // photo group (same pattern as the question flow).
       const media = answerPreview.map((url, index) => ({
         type: "photo" as const,
         media: url,
@@ -86,45 +109,40 @@ export default async function answerCallback(
         }),
       }));
 
+      let mediaSent = false;
       try {
         await bot.sendMediaGroup(chatId, media, {
           ...threadOpts,
           reply_to_message_id: messageToReply,
         });
+        mediaSent = true;
       } catch (imgError) {
         console.error("Error sending answer media group:", imgError);
+      }
+
+      if (!mediaSent) {
+        // Degraded path: deliver the answer as text, still with the buttons.
         await bot.sendMessage(chatId, answer, {
           ...threadOpts,
           parse_mode: "MarkdownV2",
           reply_to_message_id: messageToReply,
           disable_web_page_preview: true,
+          reply_markup: replyMarkup,
         });
+      } else {
+        try {
+          await bot.sendMessage(chatId, escapeMarkdownV2(MESSAGES.ANSWER_TITLE), {
+            ...threadOpts,
+            parse_mode: "MarkdownV2",
+            reply_to_message_id: messageToReply,
+            disable_web_page_preview: true,
+            reply_markup: replyMarkup,
+          });
+        } catch (carrierError) {
+          console.error("Error sending answer actions carrier:", carrierError);
+        }
       }
     } else {
-      // `messageId` is the message that carried the 📖/✨ buttons — the same
-      // telegram_message_id stored in tq-bot-question_sends. Embedding it in
-      // the callback lets answeredCallback flag the right row, because the
-      // button below lives on a NEW message with a different id.
-      const replyMarkup = packId
-        ? {
-            inline_keyboard: [
-              [
-                {
-                  text: MESSAGES.BUTTON_PLAY_PACK,
-                  callback_data: JSON.stringify({ action: "pack", packId }),
-                },
-                {
-                  text: MESSAGES.BUTTON_ANSWERED,
-                  callback_data: JSON.stringify({
-                    action: "answered",
-                    mid: messageId,
-                  }),
-                },
-              ],
-            ],
-          }
-        : undefined;
-
       await bot.sendMessage(chatId, answer, {
         ...threadOpts,
         parse_mode: "MarkdownV2",

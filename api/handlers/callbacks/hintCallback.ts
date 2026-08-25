@@ -8,13 +8,20 @@ import type { RedisClientType } from "redis";
 import { generateHint, formatErrorMessage } from "@/services/openrouter.js";
 import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
+import { resolveChatTitle } from "@/utils/telegramChat.js";
 import { recordHintResult } from "@/services/questionSendStore.js";
 import type { ThreadOpts } from "@/types/telegram.js";
 
 interface TelegramCallbackQuery {
   id: string;
   message?: {
-    chat?: { id?: number | string };
+    chat?: {
+      id?: number | string;
+      title?: string;
+      first_name?: string;
+      last_name?: string;
+      username?: string;
+    };
     message_id: number;
     reply_markup?: {
       inline_keyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>>;
@@ -114,6 +121,7 @@ export default async function hintCallback(
         telegramMessageId: buttonMessageId,
         ok: hintOk,
         ...(hintError ? { error: hintError } : {}),
+        title: resolveChatTitle(callbackQuery.message?.chat),
       });
     }
 

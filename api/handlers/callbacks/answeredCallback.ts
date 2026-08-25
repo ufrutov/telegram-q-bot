@@ -15,6 +15,7 @@ import type TelegramBot from "node-telegram-bot-api";
 import { recordQuestionAnswered } from "@/services/questionSendStore.js";
 import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
+import { resolveChatTitle } from "@/utils/telegramChat.js";
 import type {
   CallbackAction,
   InlineButton,
@@ -25,7 +26,13 @@ import type {
 interface TelegramCallbackQuery {
   id: string;
   message?: {
-    chat?: { id?: number | string };
+    chat?: {
+      id?: number | string;
+      title?: string;
+      first_name?: string;
+      last_name?: string;
+      username?: string;
+    };
     message_id: number;
     reply_markup?: InlineKeyboardMarkup & {
       inline_keyboard?: Array<Array<{ text: string; callback_data?: string; url?: string }>>;
@@ -62,6 +69,7 @@ export default async function answeredCallback(
     chatId,
     threadId,
     telegramMessageId: parsed.mid,
+    title: resolveChatTitle(callbackQuery.message?.chat),
   });
 
   if (!result.ok) {

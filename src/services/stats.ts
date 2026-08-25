@@ -15,6 +15,7 @@ import { getSupabaseClient } from "./supabase.js";
 import { getChat } from "./chatStore.js";
 import { COMPLEXITIES, type Complexity } from "@/types/question.js";
 import { COMPLEXITY_EMOJI } from "@/bot/constants.js";
+import { escapeMarkdownV2 } from "@/utils/markdown.js";
 
 export type StatsResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -27,6 +28,8 @@ export interface SendStat {
 }
 
 export interface StatsReport {
+  /** Display title of the chat (group name or person name), if known. */
+  chatTitle: string | null;
   sends: SendStat[];
   failures: number;
 }
@@ -86,6 +89,7 @@ export async function getStats(
     return {
       ok: true,
       value: {
+        chatTitle: chat.title,
         sends: COMPLEXITIES.map((c) => buckets.get(c) ?? emptyStat(c)),
         failures,
       },
@@ -121,7 +125,10 @@ function plural(n: number, one: string, few: string, many: string): string {
  * appended only when the count is above zero.
  */
 export function formatStats(report: StatsReport): string {
-  const lines: string[] = ["📊 *Статистика*", ""];
+  const header = report.chatTitle
+    ? `📊 *Статистика* — ${escapeMarkdownV2(report.chatTitle)}`
+    : "📊 *Статистика*";
+  const lines: string[] = [header, ""];
 
   const detailLines: string[] = [];
   let totalLoaded = 0;

@@ -46,9 +46,20 @@ function cacheKey(chatId: number | string, threadId: number | undefined): string
   return `${chatPart}:${threadPart}`;
 }
 
+/**
+ * Returns the chat row, creating it if it does not yet exist.
+ *
+ * `title` is optional context from Telegram payloads (see
+ * resolveChatTitle). When provided it is part of the upsert payload, so
+ * PostgREST sets it on insert AND refreshes it on conflict — group
+ * renames propagate on the next message. Callers without Telegram
+ * context (e.g. the ticker) omit it and can never clobber an existing
+ * title, since upserts update only supplied columns.
+ */
 export async function getOrCreateChat(
   chatId: number | string,
   threadId: number | undefined,
+  title?: string | null,
 ): Promise<ChatRow | null> {
   const numericChatId = typeof chatId === "string" ? Number(chatId) : chatId;
   if (!Number.isFinite(numericChatId)) {
@@ -67,9 +78,11 @@ export async function getOrCreateChat(
   }
 
   try {
-    const row = {
+    const trimmedTitle = title?.trim() || null;
+    const row: Record<string, unknown> = {
       chat_id: numericChatId,
       thread_id: threadId ?? null,
+      ...(trimmedTitle ? { title: trimmedTitle } : {}),
     };
 
     const { data, error } = await supabase
@@ -124,15 +137,18 @@ export async function getChat(
   }
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from(TABLES.chats)
       .select(
         "id, chat_id, thread_id, title, timezone, is_active, cron_enabled, cron_time, cron_last_sent_at",
       )
-      .eq("chat_id", numericChatId)
-      // `.is()` (not `.eq()`) — PostgREST null matching; `eq.null` never matches.
-      .is("thread_id", threadId ?? null)
-      .maybeSingle();
+      .eq("chat_id", numericChatId);
+
+    // PostgREST operators differ by nullness: `is` accepts only null/true/false,
+    // so real thread ids must filter with plain `eq` (is.7 is a parse error).
+    query = threadId == null ? query.is("thread_id", null) : query.eq("thread_id", threadId);
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       console.warn("[supabase] getChat select failed:", error.message);
@@ -155,6 +171,7 @@ export async function getChat(
 /**
  * Toggle cron_enabled for a chat. Inserts the row if missing (carrying the
  * default cron_time of 12:00 and the default timezone Europe/Chisinau).
+ * Optional `title` rides along when the caller has Telegram context.
  * Returns the fields needed to re-render the status card, including
  * cron_last_sent_at so callers don't need a second read.
  */
@@ -162,6 +179,7 @@ export async function setCronEnabled(
   chatId: number | string,
   threadId: number | undefined,
   enabled: boolean,
+  title?: string,
 ): Promise<
   CronResult<{ cron_enabled: boolean; cron_time: string; cron_last_sent_at: string | null }>
 > {
@@ -174,16 +192,17 @@ export async function setCronEnabled(
   if (!supabase) return { ok: false, error: "DB is not configured" };
 
   try {
+    const trimmedTitle = title?.trim() || null;
+    const payload: Record<string, unknown> = {
+      chat_id: numericChatId,
+      thread_id: threadId ?? null,
+      cron_enabled: enabled,
+      ...(trimmedTitle ? { title: trimmedTitle } : {}),
+    };
+
     const { data, error } = await supabase
       .from(TABLES.chats)
-      .upsert(
-        {
-          chat_id: numericChatId,
-          thread_id: threadId ?? null,
-          cron_enabled: enabled,
-        },
-        { onConflict: "chat_id,thread_id" },
-      )
+      .upsert(payload, { onConflict: "chat_id,thread_id" })
       .select("cron_enabled, cron_time, cron_last_sent_at")
       .single();
 
