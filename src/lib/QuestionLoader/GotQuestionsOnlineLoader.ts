@@ -8,14 +8,22 @@ import * as gotQuestionsAuth from "@/services/gotQuestionsAuth.js";
 import type { Complexity, Pack, PackQuestionRef, Question } from "@/types/question.js";
 
 /**
- * TrueDL complexity ranges mapping
- * Based on https://pecheny.me/blog/truedl/
+ * Server Action id used by the /search page to execute a question search.
+ * This is a content hash of the deployed action — update it if the site
+ * ships a breaking change (search requests will start returning 500).
+ */
+const SEARCH_ACTION_ID = "40bd142d2a21500c570305efe2c01cb555aa696469";
+
+/**
+ * TrueDL complexity ranges. The new site ignores these server-side (the
+ * question search always returns the same pool), so they are kept only to
+ * mirror the site's search UI request shape.
  */
 const COMPLEXITY_RANGES: Record<Complexity, { min: number; max: number; pages: number }> = {
   random: { min: 0.1, max: 4.5, pages: 500 },
   easy: { min: 0.1, max: 3.5, pages: 500 },
   medium: { min: 3.5, max: 6.5, pages: 500 },
-  hard: { min: 6.5, max: 10, pages: 200 },
+  hard: { min: 6.5, max: 10, pages: 500 },
 };
 
 interface RawQuestion {
@@ -30,27 +38,30 @@ interface RawQuestion {
   comment?: string;
   commentPic?: string;
   answerPic?: string;
-  complexity?: number[];
+  complexity?: Array<string | number>;
+  tour?: { pack?: RawPack };
 }
 
 interface RawPack {
   id: string | number;
   pubDate?: string;
   title: string;
-  trueDl?: number[];
-  tours?: Array<{ questions?: RawQuestion[] }>;
-}
-
-interface RawPackResponse extends RawPack {
+  trueDl?: Array<string | number>;
+  truedls?: Array<string | number>;
   tours?: Array<{ questions?: RawQuestion[] }>;
 }
 
 /**
  * GotQuestionsOnlineLoader - Loads questions from gotquestions.online
+ *
+ * The site is a Next.js (App Router) application. The old JSON API (`/api/search`,
+ * `/api/question`, `/api/pack`) is gone — those paths now redirect to HTML pages,
+ * while the search itself is executed by a Next.js Server Action (`POST /search`
+ * with the `Next-Action` header) that returns RSC flight JSON. Question/pack data
+ * is embedded as JSON inside the pages' RSC payload.
  */
 export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   readonly baseUrl: string;
-  readonly apiUrl: string;
   readonly pages: number;
   readonly complexity: Complexity;
   readonly maxRetries: number = 3;
@@ -58,16 +69,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   constructor(target: string = "gotquestions.online", complexity: Complexity = "random") {
     super();
     const range = COMPLEXITY_RANGES[complexity] ?? COMPLEXITY_RANGES.medium;
-    const params = new URLSearchParams({
-      type: "questions",
-      limit: "1",
-      fromD: "50",
-      toD: "100", // Процент взятия
-      fromTrueDL: range.min.toString(),
-      toTrueDL: range.max.toString(), // Сложность турнира `TrueDL`
-    });
     this.baseUrl = `https://${target}`;
-    this.apiUrl = `${this.baseUrl}/api/search/?${params}`;
     this.pages = range.pages;
     this.complexity = complexity;
   }
@@ -91,34 +93,272 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
-   * Get authentication headers for API requests
+   * Get auth headers (Better Auth session cookie). Missing/expired credentials
+   * are tolerated — the current site serves questions without authentication.
    */
   private async _getAuthHeaders(redis?: RedisClientType): Promise<Record<string, string>> {
-    const token = await gotQuestionsAuth.getAccessToken(redis);
-    return { Authorization: `JWT ${token}` };
+    try {
+      const cookie = await gotQuestionsAuth.getSessionCookie(redis);
+      return cookie ? { Cookie: cookie } : {};
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("[Auth] No session cookie, continuing without auth:", message);
+      return {};
+    }
   }
 
   /**
-   * Fetch URL with JWT authentication and automatic token refresh on 401.
-   * On 401: clears cached token, re-authenticates, retries once.
+   * Fetch URL with optional Better Auth session cookie.
+   * On 401: clears cached session, re-authenticates, retries once.
+   * Throws on any non-OK status.
    */
-  private async _fetchWithAuth(url: string, redis?: RedisClientType): Promise<Response> {
-    const headers = await this._getAuthHeaders(redis);
-    const response = await fetch(url, { headers });
+  private async _fetchWithAuth(
+    url: string,
+    init: RequestInit = {},
+    redis?: RedisClientType,
+  ): Promise<Response> {
+    const authHeaders = await this._getAuthHeaders(redis);
+    let response = await fetch(url, { ...init, headers: { ...init.headers, ...authHeaders } });
 
     if (response.status === 401) {
       console.warn("[Auth] 401 received, clearing cache and retrying...");
       await gotQuestionsAuth.clearCachedToken(redis);
-      const newHeaders = await this._getAuthHeaders(redis);
-      const retryResponse = await fetch(url, { headers: newHeaders });
-      if (!retryResponse.ok) {
-        throw new Error(`HTTP error! status: ${retryResponse.status}`);
-      }
-      return retryResponse;
+      const newAuthHeaders = await this._getAuthHeaders(redis);
+      response = await fetch(url, { ...init, headers: { ...init.headers, ...newAuthHeaders } });
     }
 
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
     return response;
   }
+
+  // ---------------------------------------------------------------------------
+  // RSC payload helpers — the site embeds its data as serialized JSON inside
+  // `self.__next_f.push([1, "<string>"])` scripts in every page.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Concatenate all RSC payload strings embedded in an HTML page.
+   */
+  private _extractRscPayload(html: string): string {
+    const chunks: string[] = [];
+    const re = /self\.__next_f\.push\(\[1,\s*"((?:\\.|[^"\\])*)"\]\)/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(html))) {
+      try {
+        chunks.push(JSON.parse(`"${match[1]}"`) as string);
+      } catch {
+        /* skip malformed chunk */
+      }
+    }
+    return chunks.join("");
+  }
+
+  /**
+   * Find the index of the matching closing brace for `{` at `start`.
+   * Returns -1 if unbalanced.
+   */
+  private _matchBrace(text: string, start: number): number {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === "\\") {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Find and parse the first `"<key>":{...}` JSON object in `text`
+   * matching an optional predicate.
+   */
+  private _findJsonObject<T>(
+    text: string,
+    key: string,
+    predicate?: (obj: unknown) => boolean,
+  ): T | null {
+    const searchStr = `"${key}":{`;
+    let idx = 0;
+    while (true) {
+      idx = text.indexOf(searchStr, idx);
+      if (idx === -1) return null;
+      const start = idx + searchStr.length - 1;
+      const end = this._matchBrace(text, start);
+      if (end !== -1) {
+        try {
+          const parsed = JSON.parse(text.slice(start, end + 1)) as T;
+          if (!predicate || predicate(parsed)) return parsed;
+        } catch {
+          /* keep scanning */
+        }
+      }
+      idx += searchStr.length;
+    }
+  }
+
+  /**
+   * Parse a Server Action (RSC flight) response and return the `questions` array.
+   */
+  private _parseSearchResponse(text: string): RawQuestion[] {
+    for (const line of text.split("\n")) {
+      if (!line.match(/^\d+:\{/)) continue;
+      const json = line.slice(line.indexOf(":") + 1);
+      try {
+        const obj = JSON.parse(json) as { questions?: RawQuestion[] };
+        if (Array.isArray(obj.questions)) return obj.questions;
+      } catch {
+        /* try next flight segment */
+      }
+    }
+    return [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Search
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build the search URL query params, mirroring the site's search UI.
+   */
+  private _searchParams(page: number): string {
+    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
+    const params = new URLSearchParams({
+      type: "questions",
+      solo: "false",
+      uDL: "true",
+      ansSearch: "true",
+      textSearch: "true",
+      commSearch: "true",
+      sourceSearch: "false",
+      or: "false",
+      withdrawn: "false",
+      toTrueDL: range.max.toString(),
+      fromD: "34",
+      uD: "true",
+      limit: "1",
+      page: String(page),
+    });
+    return params.toString();
+  }
+
+  /**
+   * Build the Server Action argument body (JSON array of one args object).
+   */
+  private _searchBody(page: number): string {
+    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
+    const args = {
+      type: "questions",
+      solo: false,
+      uDL: true,
+      ansSearch: true,
+      textSearch: true,
+      commSearch: true,
+      sourceSearch: false,
+      or: false,
+      withdrawn: false,
+      toTrueDL: range.max,
+      fromD: 34,
+      uD: true,
+      limit: 1,
+      page,
+    };
+    return JSON.stringify([args]);
+  }
+
+  /**
+   * Fetch a page of questions from the /search Server Action.
+   */
+  private async _fetchSearchQuestions(
+    page: number,
+    redis?: RedisClientType,
+  ): Promise<RawQuestion[]> {
+    const url = `${this.baseUrl}/search?${this._searchParams(page)}`;
+    const response = await this._fetchWithAuth(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Accept: "text/x-component",
+          "Content-Type": "text/plain;charset=UTF-8",
+          "Next-Action": SEARCH_ACTION_ID,
+          Origin: this.baseUrl,
+          Referer: url,
+        },
+        body: this._searchBody(page),
+      },
+      redis,
+    );
+    const text = await response.text();
+    return this._parseSearchResponse(text);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Data normalization
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Convert a mixed (number|string) array into an array of finite numbers.
+   */
+  private _toNumbers(values?: Array<string | number> | null): number[] | undefined {
+    if (!values || values.length === 0) return undefined;
+    const nums = values.map((v) => Number(v)).filter((n) => Number.isFinite(n));
+    return nums.length > 0 ? nums : undefined;
+  }
+
+  /**
+   * Normalize a raw question: derive `packId` from the embedded tour.pack.
+   */
+  private _normalizeQuestion(raw: RawQuestion): RawQuestion {
+    const packId = raw.tour?.pack?.id ?? raw.packId;
+    return { ...raw, packId: packId ?? null };
+  }
+
+  /**
+   * Build a pack object from a raw pack embed.
+   */
+  private _packFromRaw(packRaw: RawPack): Pack {
+    const questions: PackQuestionRef[] = [];
+    if (Array.isArray(packRaw.tours)) {
+      for (const tour of packRaw.tours) {
+        if (tour.questions) {
+          for (const q of tour.questions) {
+            questions.push({ id: q.id });
+          }
+        }
+      }
+    }
+    return {
+      id: packRaw.id,
+      title: packRaw.title || "",
+      pubDate: packRaw.pubDate,
+      trueDl: this._toNumbers(packRaw.trueDl ?? packRaw.truedls),
+      total: questions.length,
+      questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
 
   /**
    * Extract image URLs from razdatka fields
@@ -136,7 +376,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
-   * Load Questions Pack data from API
+   * Load Questions Pack data — parsed from the `/pack/<id>` page RSC payload
    *
    * @param packId - Pack ID to load
    * @param redis - Optional Redis client for token caching
@@ -148,35 +388,18 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     }
 
     try {
-      const url = `${this.baseUrl}/api/pack/${packId}/`;
-      const response = await this._fetchWithAuth(url, redis);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const url = `${this.baseUrl}/pack/${packId}`;
+      const response = await this._fetchWithAuth(url, {}, redis);
+      const html = await response.text();
+      const rsc = this._extractRscPayload(html);
+      const packRaw = this._findJsonObject<RawPack>(rsc, "pack", (obj) => {
+        if (typeof obj !== "object" || obj === null) return false;
+        return String((obj as RawPack).id) === String(packId);
+      });
+      if (!packRaw) {
+        return null;
       }
-
-      const packData = (await response.json()) as RawPackResponse;
-
-      // Collect all questions from all tours
-      const questions: RawQuestion[] = [];
-      if (packData.tours && Array.isArray(packData.tours)) {
-        for (const tour of packData.tours) {
-          if (tour.questions && Array.isArray(tour.questions)) {
-            questions.push(...tour.questions);
-          }
-        }
-      }
-
-      const total = questions.length;
-
-      return {
-        id: packData.id,
-        pubDate: packData.pubDate,
-        title: packData.title,
-        trueDl: packData.trueDl,
-        total,
-        questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW) as unknown as PackQuestionRef[],
-      };
+      return this._packFromRaw(packRaw);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`Failed to load pack ${packId}: ${message}`);
@@ -185,7 +408,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
-   * Parse question data from API response
+   * Parse question data from the new-site JSON shape into the normalized Question.
    */
   parseQuestionData(
     questionData: RawQuestion,
@@ -249,11 +472,12 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     }
 
     // Add complexity percent to description
-    if (questionData.complexity && questionData.complexity.length > 0) {
+    const complexityValues = this._toNumbers(questionData.complexity);
+    if (complexityValues) {
       const complexityEmoji = COMPLEXITY_EMOJI[this.complexity] ?? "↗️";
       let complexityText = `[${complexityEmoji}](${this.baseUrl}/question/${questionData.id})`;
 
-      // Add pack complexity if available
+      // Add pack complexity (TrueDL) if available
       if (Array.isArray(packData?.trueDl) && packData.trueDl.length > 0) {
         const packComplexity = (
           packData.trueDl.reduce((a, b) => a + b, 0) / packData.trueDl.length
@@ -263,7 +487,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       }
 
       const questionComplexity = (
-        questionData.complexity.reduce((a, b) => a + b, 0) / questionData.complexity.length
+        complexityValues.reduce((a, b) => a + b, 0) / complexityValues.length
       ).toFixed(1);
 
       complexityText += ` • *${escapeMarkdownV2(questionComplexity)}%* верных ответов`;
@@ -310,33 +534,37 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   /**
    * Load a question from gotquestions.online.
    *
-   * If `questionId` is provided, loads that specific question directly.
-   * Otherwise loads a random question from the search API.
+   * If `questionId` is provided, loads that specific question from the
+   * `/question/<id>` page RSC payload. Otherwise loads a random question
+   * via the /search Server Action.
    *
    * Retry Logic:
    * - Client errors (4xx, except 401): No retry, fails immediately
    * - Server errors (5xx) or network errors: Retries up to 3 times with exponential backoff
    * - Delay between retries: 1s, 2s, 4s (max)
-   * - 401 handled: Token refresh + single retry (before the retry loop)
+   * - 401 handled: Cookie refresh + single retry (before the retry loop)
    */
   async loadQuestion(questionId?: string | number, redis?: RedisClientType): Promise<Question> {
     // If a specific question id is provided, fetch it directly and return
     if (questionId != null) {
       try {
-        const url = `${this.baseUrl}/api/question/${questionId}/`;
-        const response = await this._fetchWithAuth(url, redis);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        const url = `${this.baseUrl}/question/${questionId}`;
+        const response = await this._fetchWithAuth(url, {}, redis);
+        const html = await response.text();
+        const rsc = this._extractRscPayload(html);
+        const raw = this._findJsonObject<RawQuestion>(rsc, "question", (obj) => {
+          if (typeof obj !== "object" || obj === null) return false;
+          const q = obj as RawQuestion;
+          return "text" in q || String(q.id) === String(questionId);
+        });
+        if (!raw) {
+          throw new Error("Question not found in page");
         }
-        const questionData = (await response.json()) as RawQuestion;
-        const questionLink = `${this.baseUrl}/question/${questionData.id}`;
+        const normalized = this._normalizeQuestion(raw);
+        const packData = normalized.tour?.pack ? this._packFromRaw(normalized.tour.pack) : null;
+        const questionLink = `${this.baseUrl}/question/${normalized.id}`;
 
-        let packData: Pack | null = null;
-        if (questionData.packId) {
-          packData = await this.loadPackData(questionData.packId, redis);
-        }
-
-        return this.parseQuestionData(questionData, questionLink, packData);
+        return this.parseQuestionData(normalized, questionLink, packData);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to load question ${questionId}: ${message}`);
@@ -348,33 +576,28 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       // Generate random page number between 1 and X
       const randomPage = Math.floor(Math.random() * this.pages) + 1;
-      const url = `${this.apiUrl}&page=${randomPage}`;
       try {
-        const response = await this._fetchWithAuth(url, redis);
-        const data = (await response.json()) as { questions?: RawQuestion[] };
+        const questions = await this._fetchSearchQuestions(randomPage, redis);
 
-        if (!data.questions || data.questions.length === 0) {
+        if (questions.length === 0) {
           throw new Error("No questions found in response");
         }
 
-        const randomIndex = Math.floor(Math.random() * data.questions.length);
-        const questionData = data.questions[randomIndex];
+        const randomIndex = Math.floor(Math.random() * questions.length);
+        const questionData = questions[randomIndex];
         if (!questionData) {
           throw new Error("Selected question is undefined");
         }
-        const questionLink = `${this.baseUrl}/question/${questionData.id}`;
+        const normalized = this._normalizeQuestion(questionData);
+        const packData = normalized.tour?.pack ? this._packFromRaw(normalized.tour.pack) : null;
+        const questionLink = `${this.baseUrl}/question/${normalized.id}`;
 
-        let packData: Pack | null = null;
-        if (questionData.packId) {
-          packData = await this.loadPackData(questionData.packId, redis);
-        }
-
-        return this.parseQuestionData(questionData, questionLink, packData);
+        return this.parseQuestionData(normalized, questionLink, packData);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (this._isClientError(lastError) || attempt >= this.maxRetries) {
           console.error(
-            `Failed to load question after ${attempt} attempt(s): ${lastError.message} | URL: ${url}`,
+            `Failed to load question after ${attempt} attempt(s): ${lastError.message}`,
           );
           throw new Error(
             `Failed to load question after ${attempt} attempt(s): ${lastError.message}`,
@@ -382,7 +605,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
         }
         const delay = this._getRetryDelay(attempt);
         console.warn(
-          `Attempt ${attempt} failed: ${lastError.message} | URL: ${url}. Retrying in ${delay}ms...`,
+          `Attempt ${attempt} failed: ${lastError.message}. Retrying in ${delay}ms...`,
         );
         await new Promise((r) => setTimeout(r, delay));
       }
