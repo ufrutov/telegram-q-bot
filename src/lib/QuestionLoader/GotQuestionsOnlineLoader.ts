@@ -67,6 +67,12 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   readonly complexity: Complexity;
   readonly maxRetries: number = 3;
 
+  /**
+   * In-memory pack cache (per invocation) — multiple questions on a search
+   * page often share a pack, so avoid re-fetching the same pack page.
+   */
+  private packCache = new Map<string | number, Pack | null>();
+
   constructor(target: string = "gotquestions.online", complexity: Complexity = "random") {
     super();
     const range = COMPLEXITY_RANGES[complexity] ?? COMPLEXITY_RANGES.medium;
@@ -326,6 +332,36 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
+   * Strip the RSC `$D` marker from serialized dates
+   * (e.g. `"$D2012-09-03T00:00:00.000Z"` → `"2012-09-03T00:00:00.000Z"`),
+   * so formatDate can parse them.
+   */
+  private _cleanRscDate(value: string | null | undefined): string | undefined {
+    if (value == null) return undefined;
+    const s = String(value).trim();
+    if (!s) return undefined;
+    return s.startsWith("$D") ? s.slice(2) : s;
+  }
+
+  /**
+   * Average TrueDL of a pack, or null if unknown.
+   */
+  private _trueDlOf(packData: Pack | null): number | null {
+    if (!packData?.trueDl || packData.trueDl.length === 0) return null;
+    return packData.trueDl.reduce((a, b) => a + b, 0) / packData.trueDl.length;
+  }
+
+  /**
+   * Whether a pack TrueDL matches the requested complexity range.
+   * `random` accepts anything; unknown TrueDL counts as a match (fail-open).
+   */
+  private _matchesComplexity(trueDl: number | null): boolean {
+    if (this.complexity === "random" || trueDl == null) return true;
+    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
+    return trueDl >= range.min && trueDl <= range.max;
+  }
+
+  /**
    * Normalize a raw question: derive `packId` from the embedded tour.pack.
    */
   private _normalizeQuestion(raw: RawQuestion): RawQuestion {
@@ -359,7 +395,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     return {
       id: packRaw.id,
       title: packRaw.title || "",
-      pubDate: packRaw.pubDate,
+      pubDate: this._cleanRscDate(packRaw.pubDate),
       trueDl,
       total: questions.length,
       questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW),
@@ -397,6 +433,11 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       return null;
     }
 
+    const cached = this.packCache.get(packId);
+    if (cached !== undefined) {
+      return cached;
+    }
+
     try {
       const url = `${this.baseUrl}/pack/${packId}`;
       const response = await this._fetchWithAuth(url, {}, redis);
@@ -407,12 +448,16 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
         return String((obj as RawPack).id) === String(packId);
       });
       if (!packRaw) {
+        this.packCache.set(packId, null);
         return null;
       }
-      return this._packFromRaw(packRaw);
+      const pack = this._packFromRaw(packRaw);
+      this.packCache.set(packId, pack);
+      return pack;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`Failed to load pack ${packId}: ${message}`);
+      this.packCache.set(packId, null);
       return null;
     }
   }
@@ -583,46 +628,96 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       }
     }
 
+    // The search Server Action ignores the difficulty filter server-side
+    // (verified: toTrueDL=0.1 and toTrueDL=10 return the same pool), so the
+    // range is enforced here, as a best-effort filter: sample a few random
+    // pages and return the first question whose pack TrueDL fits the range.
     let lastError: Error | null = null;
+    let fallback: { normalized: RawQuestion; packData: Pack | null } | null = null;
+    let closest: {
+      normalized: RawQuestion;
+      packData: Pack | null;
+      distance: number;
+    } | null = null;
+    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
+    const maxPages = 6;
+    const maxChecks = 30;
+    let checks = 0;
 
-    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= maxPages; attempt++) {
       // Generate random page number between 1 and X
       const randomPage = Math.floor(Math.random() * this.pages) + 1;
+      let questions: RawQuestion[];
       try {
-        const questions = await this._fetchSearchQuestions(randomPage, redis);
-
-        if (questions.length === 0) {
-          throw new Error("No questions found in response");
-        }
-
-        const randomIndex = Math.floor(Math.random() * questions.length);
-        const questionData = questions[randomIndex];
-        if (!questionData) {
-          throw new Error("Selected question is undefined");
-        }
-        const normalized = this._normalizeQuestion(questionData);
-        const packData = normalized.packId
-          ? await this.loadPackData(normalized.packId, redis)
-          : null;
-        const questionLink = `${this.baseUrl}/question/${normalized.id}`;
-
-        return this.parseQuestionData(normalized, questionLink, packData);
+        questions = await this._fetchSearchQuestions(randomPage, redis);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        if (this._isClientError(lastError) || attempt >= this.maxRetries) {
-          console.error(
-            `Failed to load question after ${attempt} attempt(s): ${lastError.message}`,
-          );
-          throw new Error(
-            `Failed to load question after ${attempt} attempt(s): ${lastError.message}`,
-          );
+        if (this._isClientError(lastError)) {
+          console.error(`Failed to load question: ${lastError.message}`);
+          throw new Error(`Failed to load question: ${lastError.message}`);
         }
         const delay = this._getRetryDelay(attempt);
         console.warn(
           `Attempt ${attempt} failed: ${lastError.message}. Retrying in ${delay}ms...`,
         );
         await new Promise((r) => setTimeout(r, delay));
+        continue;
       }
+
+      if (questions.length === 0) {
+        continue;
+      }
+
+      const normalized = questions.map((q) => this._normalizeQuestion(q));
+      for (let i = normalized.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [normalized[i], normalized[j]] = [normalized[j], normalized[i]];
+      }
+
+      for (const questionData of normalized) {
+        // The pack page is fetched anyway for TrueDL display, so checking the
+        // range here costs nothing extra.
+        const packData = questionData.packId
+          ? await this.loadPackData(questionData.packId, redis)
+          : null;
+        if (!fallback) {
+          fallback = { normalized: questionData, packData };
+        }
+        checks++;
+        const trueDl = this._trueDlOf(packData);
+        if (this._matchesComplexity(trueDl)) {
+          const questionLink = `${this.baseUrl}/question/${questionData.id}`;
+
+          return this.parseQuestionData(questionData, questionLink, packData);
+        }
+        // Track the candidate closest to the requested range so the fail-open
+        // fallback at least returns the "least wrong" question.
+        if (trueDl != null) {
+          const distance =
+            trueDl < range.min
+              ? range.min - trueDl
+              : trueDl > range.max
+                ? trueDl - range.max
+                : 0;
+          if (!closest || distance < closest.distance) {
+            closest = { normalized: questionData, packData, distance };
+          }
+        }
+        if (checks >= maxChecks) {
+          break;
+        }
+      }
+      if (checks >= maxChecks) {
+        break;
+      }
+    }
+
+    // Budget exhausted without finding an in-range question — fail open with
+    // the closest match (or the first candidate) instead of failing the request.
+    const best = closest ?? fallback;
+    if (best) {
+      const questionLink = `${this.baseUrl}/question/${best.normalized.id}`;
+      return this.parseQuestionData(best.normalized, questionLink, best.packData);
     }
 
     // Should be unreachable — the loop always returns or throws
