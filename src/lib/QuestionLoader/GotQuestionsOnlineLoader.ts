@@ -48,6 +48,7 @@ interface RawPack {
   title: string;
   trueDl?: Array<string | number>;
   truedls?: Array<string | number>;
+  legacyTournaments?: Array<{ truedl?: string | number }>;
   tours?: Array<{ questions?: RawQuestion[] }>;
 }
 
@@ -334,6 +335,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
   /**
    * Build a pack object from a raw pack embed.
+   * Pack TrueDL lives on the pack page as `legacyTournaments[].truedl`.
    */
   private _packFromRaw(packRaw: RawPack): Pack {
     const questions: PackQuestionRef[] = [];
@@ -346,11 +348,19 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
         }
       }
     }
+    const legacyTruedl = packRaw.legacyTournaments
+      ?.map((t) => t.truedl)
+      .filter((v): v is string | number => v != null);
+    const trueDl = this._toNumbers(
+      legacyTruedl && legacyTruedl.length > 0
+        ? legacyTruedl
+        : (packRaw.trueDl ?? packRaw.truedls),
+    );
     return {
       id: packRaw.id,
       title: packRaw.title || "",
       pubDate: packRaw.pubDate,
-      trueDl: this._toNumbers(packRaw.trueDl ?? packRaw.truedls),
+      trueDl,
       total: questions.length,
       questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW),
     };
@@ -561,7 +571,9 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
           throw new Error("Question not found in page");
         }
         const normalized = this._normalizeQuestion(raw);
-        const packData = normalized.tour?.pack ? this._packFromRaw(normalized.tour.pack) : null;
+        const packData = normalized.packId
+          ? await this.loadPackData(normalized.packId, redis)
+          : null;
         const questionLink = `${this.baseUrl}/question/${normalized.id}`;
 
         return this.parseQuestionData(normalized, questionLink, packData);
@@ -589,7 +601,9 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
           throw new Error("Selected question is undefined");
         }
         const normalized = this._normalizeQuestion(questionData);
-        const packData = normalized.tour?.pack ? this._packFromRaw(normalized.tour.pack) : null;
+        const packData = normalized.packId
+          ? await this.loadPackData(normalized.packId, redis)
+          : null;
         const questionLink = `${this.baseUrl}/question/${normalized.id}`;
 
         return this.parseQuestionData(normalized, questionLink, packData);
