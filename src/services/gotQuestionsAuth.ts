@@ -1,16 +1,17 @@
 /**
  * GotQuestions Online Authentication Service
  *
- * Handles JWT token acquisition and caching for gotquestions.online API.
+ * The site now uses "Better Auth" (Next.js) with cookie-based sessions
+ * instead of the old NextAuth JWT flow.
  *
  * Authentication Flow:
- *   1. Full login:  CSRF → Credentials → Session → JWT token (30-min session cookie, 1h JWT)
- *   2. Quick refresh: Session cookie (30d) → GET /api/auth/session → fresh JWT (1h)
+ *   1. Full login:  POST /api/auth/sign-in/email {email, password}
+ *                   → session cookie `__Secure-better-auth.session_token` (7 days)
+ *   2. Quick refresh: GET /api/auth/get-session with cookie → session.expiresAt
  *   3. On 401: force full login
  *
- * Caching strategy (reduces auth requests to ~1 per hour):
- *   - Session cookie (30d) stored in Redis → full login only once per month
- *   - JWT token (1h) cached in Redis + memory → session fetch once per hour
+ * Caching strategy (reduces auth requests to ~1 per week):
+ *   - Session cookie (7d) cached in Redis + memory
  *   - In-memory cache as fallback (per serverless invocation)
  */
 
@@ -18,65 +19,64 @@ import type { RedisClientType } from "redis";
 
 const BASE_URL = "https://gotquestions.online";
 
+const REDIS_KEY_SESSION = "gotquestions:session_cookie";
+
 interface AuthCache {
-  token: string;
+  cookie: string;
   expires: number;
-  sessionCookie?: string;
-}
-
-interface JwtPayload {
-  exp: number;
-  user_email?: string;
-  [key: string]: unknown;
-}
-
-interface SessionResponse {
-  accessToken?: string;
 }
 
 let memoryCache: AuthCache | null = null;
 
-const REDIS_KEY_JWT = "gotquestions:jwt_token";
-const REDIS_KEY_SESSION = "gotquestions:session_cookie";
-const SESSION_TTL_SECONDS = 86400 * 28;
-
 /**
- * Decode JWT token payload to extract expiry
+ * Extract the Better Auth session cookie (`*session_token=value`) from Set-Cookie.
+ * The value is kept exactly as returned (URL-encoded signature) and later sent
+ * verbatim as the `Cookie` header.
  */
-function decodeToken(token: string): JwtPayload | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const payload = parts[1];
-    if (!payload) return null;
-    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8")) as JwtPayload;
-    return decoded;
-  } catch {
-    return null;
+function extractSessionCookie(setCookieHeader: string | null): string {
+  if (!setCookieHeader) {
+    throw new Error("No Set-Cookie header in sign-in response");
   }
+  const matches = setCookieHeader.split(",").map((c) => c.trim());
+  const sessionCookie = matches.find((c) => /session_token/i.test(c));
+  if (!sessionCookie) {
+    throw new Error("No session_token cookie in sign-in response");
+  }
+  return sessionCookie.split(";")[0] ?? "";
 }
 
 /**
- * Extract cookie key=value pairs from Set-Cookie header
+ * Fetch current session info using a session cookie.
+ * Returns the session expiry (epoch seconds). Throws if the session is invalid.
  */
-function extractCookies(setCookieHeader: string | null): string {
-  if (!setCookieHeader) return "";
-  return setCookieHeader
-    .split(",")
-    .map((c) => c.split(";")[0]?.trim() ?? "")
-    .filter(Boolean)
-    .join("; ");
+async function fetchSession(cookie: string): Promise<{ expires: number }> {
+  const sessionResponse = await fetch(`${BASE_URL}/api/auth/get-session`, {
+    headers: { Cookie: cookie },
+  });
+  if (!sessionResponse.ok) {
+    throw new Error(`Session fetch failed: HTTP ${sessionResponse.status}`);
+  }
+  const data = (await sessionResponse.json().catch(() => null)) as {
+    session?: { expiresAt?: string };
+  } | null;
+
+  if (!data?.session?.expiresAt) {
+    throw new Error("No active session");
+  }
+
+  const expires = Math.floor(Date.parse(data.session.expiresAt) / 1000);
+  if (!Number.isFinite(expires)) {
+    throw new Error("Invalid session expiry");
+  }
+
+  return { expires };
 }
 
 /**
- * Full login flow — CSRF → credentials → session
- * Used only when no valid session cookie exists (~1 per month)
+ * Full login flow — sign-in with credentials, then validate via get-session.
+ * Used only when no valid session cookie exists (~1 per week).
  */
-async function login(): Promise<{
-  token: string;
-  expires: number;
-  sessionCookie: string;
-}> {
+async function login(): Promise<{ cookie: string; expires: number }> {
   const email = process.env.GOTQUESTIONS_EMAIL;
   const password = process.env.GOTQUESTIONS_PASSWORD;
   if (!email || !password) {
@@ -85,183 +85,115 @@ async function login(): Promise<{
     );
   }
 
-  // Step 1: Get CSRF token + cookies
-  const csrfResponse = await fetch(`${BASE_URL}/api/auth/csrf`);
-  if (!csrfResponse.ok) {
-    throw new Error(`Failed to get CSRF token: HTTP ${csrfResponse.status}`);
-  }
-  const { csrfToken } = (await csrfResponse.json()) as { csrfToken: string };
-  let cookies = extractCookies(csrfResponse.headers.get("set-cookie"));
-
-  // Step 2: Login with credentials (form-encoded — NextAuth requirement)
-  const loginParams = new URLSearchParams();
-  loginParams.append("email", email);
-  loginParams.append("password", password);
-  loginParams.append("csrfToken", csrfToken);
-  loginParams.append("redirect", "false");
-  loginParams.append("json", "true");
-  loginParams.append("callbackUrl", `${BASE_URL}/search`);
-
-  const loginResponse = await fetch(`${BASE_URL}/api/auth/callback/credentials`, {
+  const loginResponse = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: cookies,
-    },
-    body: loginParams.toString(),
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ email, password }),
   });
   if (!loginResponse.ok) {
     throw new Error(`Login failed: HTTP ${loginResponse.status}`);
   }
 
-  // Merge all cookies (CSRF + session)
-  const loginCookies = extractCookies(loginResponse.headers.get("set-cookie"));
-  cookies = cookies + "; " + loginCookies;
+  const cookie = extractSessionCookie(loginResponse.headers.get("set-cookie"));
+  const { expires } = await fetchSession(cookie);
 
-  // Step 3: Get session with JWT access token
-  const { token, expires } = await fetchSession(cookies);
-
-  return { token, expires, sessionCookie: cookies };
+  return { cookie, expires };
 }
 
 /**
- * Fetch session to get a fresh JWT access token
- * Uses existing session cookie (no credentials needed)
- */
-async function fetchSession(cookies: string): Promise<{ token: string; expires: number }> {
-  const sessionResponse = await fetch(`${BASE_URL}/api/auth/session`, {
-    headers: { Cookie: cookies },
-  });
-  if (!sessionResponse.ok) {
-    throw new Error(`Session fetch failed: HTTP ${sessionResponse.status}`);
-  }
-  const sessionData = (await sessionResponse.json()) as SessionResponse;
-
-  if (!sessionData.accessToken) {
-    throw new Error("No access token in session response");
-  }
-
-  const decoded = decodeToken(sessionData.accessToken);
-  if (!decoded || !decoded.exp) {
-    throw new Error("Invalid JWT token: cannot decode expiry");
-  }
-
-  return { token: sessionData.accessToken, expires: decoded.exp };
-}
-
-/**
- * Get a valid access token using cached session cookie and JWT
+ * Get a valid Better Auth session cookie.
  *
  * Cache hierarchy:
- *   1. JWT in memory (per invocation)
- *   2. JWT in Redis (across invocations)
- *   3. Session cookie in Redis → quick session fetch (1 req)
- *   4. Full login (3 req, once per month)
+ *   1. Session cookie in memory (per invocation)
+ *   2. Session cookie in Redis (across invocations)
+ *   3. Full login (~1 per week)
  *
  * @param redis - Optional Redis client for caching
- * @returns Valid JWT access token
+ * @returns Better Auth session cookie header value (`name=value`)
  */
-export async function getAccessToken(redis?: RedisClientType | null): Promise<string> {
-  const bufferSeconds = 60; // 1 min buffer before JWT expiry
+export async function getSessionCookie(redis?: RedisClientType | null): Promise<string> {
+  const bufferSeconds = 60;
   const nowSec = Math.floor(Date.now() / 1000);
 
-  // 1. Check in-memory cache (per invocation)
-  if (memoryCache && memoryCache.token) {
+  // 1. Check in-memory cache
+  if (memoryCache && memoryCache.cookie) {
     if (memoryCache.expires > nowSec + bufferSeconds) {
-      return memoryCache.token;
+      return memoryCache.cookie;
     }
-    // Token expired in memory, but we may have session cookie
-    if (memoryCache.sessionCookie) {
-      try {
-        const { token, expires } = await fetchSession(memoryCache.sessionCookie);
-        memoryCache = {
-          token,
-          expires,
-          sessionCookie: memoryCache.sessionCookie,
-        };
-        return token;
-      } catch {
-        memoryCache = null; // session cookie stale, force full login
-      }
+    // Cookie expired in memory — try a quick session refresh
+    try {
+      const { expires } = await fetchSession(memoryCache.cookie);
+      memoryCache = { cookie: memoryCache.cookie, expires };
+      return memoryCache.cookie;
+    } catch {
+      memoryCache = null;
     }
   }
 
   const isRedis = !!(redis && redis.isOpen);
 
-  // 2. Try Redis — check for cached JWT
+  // 2. Try Redis cache
   if (isRedis && redis) {
     try {
-      const cachedToken = await redis.get(REDIS_KEY_JWT);
-      if (cachedToken) {
-        const parsed = JSON.parse(cachedToken) as {
-          token: string;
-          expires: number;
-        };
-        if (parsed.expires > nowSec + bufferSeconds) {
-          memoryCache = { token: parsed.token, expires: parsed.expires };
-          return parsed.token;
+      const cached = await redis.get(REDIS_KEY_SESSION);
+      if (cached) {
+        const parsed = JSON.parse(cached) as AuthCache;
+        if (parsed.cookie && parsed.expires > nowSec + bufferSeconds) {
+          memoryCache = parsed;
+          return parsed.cookie;
         }
-        // JWT expired, try session cookie
+        // Cookie expired — try a quick session refresh
+        try {
+          const { expires } = await fetchSession(parsed.cookie);
+          const ttl = Math.max(expires - nowSec - bufferSeconds, 60);
+          await redis.setEx(REDIS_KEY_SESSION, ttl, JSON.stringify({ cookie: parsed.cookie, expires }));
+          memoryCache = { cookie: parsed.cookie, expires };
+          return parsed.cookie;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn("[Auth] Redis session cookie stale, re-login needed:", message);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn("[Auth] Redis read error:", message);
     }
-
-    // 3. Try Redis — use session cookie for quick refresh
-    try {
-      const sessionCookie = await redis.get(REDIS_KEY_SESSION);
-      if (sessionCookie) {
-        const { token, expires } = await fetchSession(sessionCookie);
-        const ttl = Math.max(expires - nowSec - bufferSeconds, 60);
-        await redis.setEx(REDIS_KEY_JWT, ttl, JSON.stringify({ token, expires }));
-        memoryCache = { token, expires, sessionCookie };
-        return token;
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn("[Auth] Redis session cookie error:", message);
-    }
   }
 
-  // 4. Full login (no valid session cookie anywhere)
+  // 3. Full login (no valid session cookie anywhere)
   console.log("[Auth] Performing full login (no valid session)...");
-  const { token, expires, sessionCookie } = await login();
-  console.log(`[Auth] Login successful, JWT expires: ${new Date(expires * 1000).toISOString()}`);
+  const { cookie, expires } = await login();
+  console.log(`[Auth] Login successful, session expires: ${new Date(expires * 1000).toISOString()}`);
 
-  // Cache in memory
-  memoryCache = { token, expires, sessionCookie };
+  memoryCache = { cookie, expires };
 
-  // Cache in Redis
   if (isRedis && redis) {
     try {
-      const jwtTtl = Math.max(expires - nowSec - bufferSeconds, 60);
-      await redis.setEx(REDIS_KEY_JWT, jwtTtl, JSON.stringify({ token, expires }));
-      await redis.setEx(REDIS_KEY_SESSION, SESSION_TTL_SECONDS, sessionCookie);
-      console.log(`[Auth] Cached in Redis: JWT ${jwtTtl}s, session 28d`);
+      const ttl = Math.max(expires - nowSec - bufferSeconds, 60);
+      await redis.setEx(REDIS_KEY_SESSION, ttl, JSON.stringify({ cookie, expires }));
+      console.log(`[Auth] Cached in Redis: session ${ttl}s`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn("[Auth] Redis write error:", message);
     }
   }
 
-  return token;
+  return cookie;
 }
 
 /**
- * Clear cached token (used after 401 response to force fresh login)
+ * Clear cached session cookie (used after 401 response to force fresh login)
  */
 export async function clearCachedToken(redis?: RedisClientType | null): Promise<void> {
   memoryCache = null;
   if (redis && redis.isOpen) {
     try {
-      await redis.del(REDIS_KEY_JWT);
       await redis.del(REDIS_KEY_SESSION);
     } catch {
       /* ignore */
     }
   }
-  console.log("[Auth] Token and session cache cleared");
+  console.log("[Auth] Session cache cleared");
 }
 
-export { login, decodeToken };
+export { login };
