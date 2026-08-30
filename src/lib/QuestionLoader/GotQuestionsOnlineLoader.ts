@@ -8,22 +8,22 @@ import * as gotQuestionsAuth from "@/services/gotQuestionsAuth.js";
 import type { Complexity, Pack, PackQuestionRef, Question } from "@/types/question.js";
 
 /**
- * Server Action id used by the /search page to execute a question search.
- * This is a content hash of the deployed action — update it if the site
- * ships a breaking change (search requests will start returning 500).
+ * Max pack id used for random pack sampling. Current newest pack id is ~7030;
+ * ids above the real max return 404 and are simply resampled.
  */
-const SEARCH_ACTION_ID = "40bd142d2a21500c570305efe2c01cb555aa696469";
+const PACK_ID_MAX = 7400;
 
 /**
- * TrueDL complexity ranges. The new site ignores these server-side (the
- * question search always returns the same pool), so they are kept only to
- * mirror the site's search UI request shape.
+ * TrueDL complexity ranges (pack difficulty index).
+ * The site's /search ignores difficulty filters server-side and caps its
+ * results at 10 000 questions, so the range is enforced here, on the pack's
+ * TrueDL (legacyTournaments[].truedl).
  */
-const COMPLEXITY_RANGES: Record<Complexity, { min: number; max: number; pages: number }> = {
-  random: { min: 0.1, max: 4.5, pages: 500 },
-  easy: { min: 0.1, max: 3.5, pages: 500 },
-  medium: { min: 3.5, max: 6.5, pages: 500 },
-  hard: { min: 6.5, max: 10, pages: 500 },
+const COMPLEXITY_RANGES: Record<Complexity, { min: number; max: number }> = {
+  random: { min: 0.1, max: 4.5 },
+  easy: { min: 0.1, max: 3.5 },
+  medium: { min: 3.5, max: 6.5 },
+  hard: { min: 6.5, max: 10 },
 };
 
 interface RawQuestion {
@@ -56,28 +56,29 @@ interface RawPack {
  * GotQuestionsOnlineLoader - Loads questions from gotquestions.online
  *
  * The site is a Next.js (App Router) application. The old JSON API (`/api/search`,
- * `/api/question`, `/api/pack`) is gone — those paths now redirect to HTML pages,
- * while the search itself is executed by a Next.js Server Action (`POST /search`
- * with the `Next-Action` header) that returns RSC flight JSON. Question/pack data
- * is embedded as JSON inside the pages' RSC payload.
+ * `/api/question`, `/api/pack`) is gone — those paths now serve HTML pages with
+ * the data embedded in the page's RSC payload (`self.__next_f.push([1, ...])`).
+ *
+ * Random questions are selected by sampling a random pack id in `1..PACK_ID_MAX`
+ * and loading `/pack/<id>` (which embeds every question of the pack plus the
+ * pack TrueDL in `legacyTournaments[].truedl`). This reaches the whole DB in a
+ * single request per question, unlike `/search`, which is capped at 10 000
+ * results and ignores the difficulty filters.
  */
 export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   readonly baseUrl: string;
-  readonly pages: number;
   readonly complexity: Complexity;
   readonly maxRetries: number = 3;
 
   /**
-   * In-memory pack cache (per invocation) — multiple questions on a search
-   * page often share a pack, so avoid re-fetching the same pack page.
+   * In-memory pack cache (per invocation). Packs are reused across questions
+   * of the same pack, so avoid re-fetching the same pack page.
    */
-  private packCache = new Map<string | number, Pack | null>();
+  private packCache = new Map<string | number, { pack: Pack | null; questions: RawQuestion[] }>();
 
   constructor(target: string = "gotquestions.online", complexity: Complexity = "random") {
     super();
-    const range = COMPLEXITY_RANGES[complexity] ?? COMPLEXITY_RANGES.medium;
     this.baseUrl = `https://${target}`;
-    this.pages = range.pages;
     this.complexity = complexity;
   }
 
@@ -223,99 +224,50 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
-   * Parse a Server Action (RSC flight) response and return the `questions` array.
+   * Fetch a full pack page: parsed pack object + every question of the pack
+   * (the page RSC payload embeds all questions with full fields).
    */
-  private _parseSearchResponse(text: string): RawQuestion[] {
-    for (const line of text.split("\n")) {
-      if (!line.match(/^\d+:\{/)) continue;
-      const json = line.slice(line.indexOf(":") + 1);
-      try {
-        const obj = JSON.parse(json) as { questions?: RawQuestion[] };
-        if (Array.isArray(obj.questions)) return obj.questions;
-      } catch {
-        /* try next flight segment */
-      }
-    }
-    return [];
-  }
-
-  // ---------------------------------------------------------------------------
-  // Search
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Build the search URL query params, mirroring the site's search UI.
-   */
-  private _searchParams(page: number): string {
-    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
-    const params = new URLSearchParams({
-      type: "questions",
-      solo: "false",
-      uDL: "true",
-      ansSearch: "true",
-      textSearch: "true",
-      commSearch: "true",
-      sourceSearch: "false",
-      or: "false",
-      withdrawn: "false",
-      toTrueDL: range.max.toString(),
-      fromD: "34",
-      uD: "true",
-      limit: "1",
-      page: String(page),
-    });
-    return params.toString();
-  }
-
-  /**
-   * Build the Server Action argument body (JSON array of one args object).
-   */
-  private _searchBody(page: number): string {
-    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
-    const args = {
-      type: "questions",
-      solo: false,
-      uDL: true,
-      ansSearch: true,
-      textSearch: true,
-      commSearch: true,
-      sourceSearch: false,
-      or: false,
-      withdrawn: false,
-      toTrueDL: range.max,
-      fromD: 34,
-      uD: true,
-      limit: 1,
-      page,
-    };
-    return JSON.stringify([args]);
-  }
-
-  /**
-   * Fetch a page of questions from the /search Server Action.
-   */
-  private async _fetchSearchQuestions(
-    page: number,
+  private async _fetchPack(
+    packId: string | number,
     redis?: RedisClientType,
-  ): Promise<RawQuestion[]> {
-    const url = `${this.baseUrl}/search?${this._searchParams(page)}`;
-    const response = await this._fetchWithAuth(
-      url,
-      {
-        method: "POST",
-        headers: {
-          Accept: "text/x-component",
-          "Content-Type": "text/plain;charset=UTF-8",
-          "Next-Action": SEARCH_ACTION_ID,
-          Origin: this.baseUrl,
-          Referer: url,
-        },
-        body: this._searchBody(page),
-      },
-      redis,
-    );
-    const text = await response.text();
-    return this._parseSearchResponse(text);
+  ): Promise<{ pack: Pack | null; questions: RawQuestion[] }> {
+    const cached = this.packCache.get(packId);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const empty = { pack: null, questions: [] as RawQuestion[] };
+    try {
+      const url = `${this.baseUrl}/pack/${packId}`;
+      const response = await this._fetchWithAuth(url, {}, redis);
+      const html = await response.text();
+      const rsc = this._extractRscPayload(html);
+      const packRaw = this._findJsonObject<RawPack>(rsc, "pack", (obj) => {
+        if (typeof obj !== "object" || obj === null) return false;
+        return String((obj as RawPack).id) === String(packId);
+      });
+      if (!packRaw) {
+        this.packCache.set(packId, empty);
+        return empty;
+      }
+
+      const questions: RawQuestion[] = [];
+      if (Array.isArray(packRaw.tours)) {
+        for (const tour of packRaw.tours) {
+          if (tour.questions) {
+            questions.push(...tour.questions);
+          }
+        }
+      }
+      const result = { pack: this._packFromRaw(packRaw), questions };
+      this.packCache.set(packId, result);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Failed to load pack ${packId}: ${message}`);
+      this.packCache.set(packId, empty);
+      return empty;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -353,10 +305,12 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
 
   /**
    * Whether a pack TrueDL matches the requested complexity range.
-   * `random` accepts anything; unknown TrueDL counts as a match (fail-open).
+   * `random` accepts anything; an unknown TrueDL is rejected for the other
+   * ranges so a question isn't labeled by a difficulty we can't verify.
    */
   private _matchesComplexity(trueDl: number | null): boolean {
-    if (this.complexity === "random" || trueDl == null) return true;
+    if (this.complexity === "random") return true;
+    if (trueDl == null) return false;
     const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
     return trueDl >= range.min && trueDl <= range.max;
   }
@@ -432,34 +386,8 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     if (!packId) {
       return null;
     }
-
-    const cached = this.packCache.get(packId);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    try {
-      const url = `${this.baseUrl}/pack/${packId}`;
-      const response = await this._fetchWithAuth(url, {}, redis);
-      const html = await response.text();
-      const rsc = this._extractRscPayload(html);
-      const packRaw = this._findJsonObject<RawPack>(rsc, "pack", (obj) => {
-        if (typeof obj !== "object" || obj === null) return false;
-        return String((obj as RawPack).id) === String(packId);
-      });
-      if (!packRaw) {
-        this.packCache.set(packId, null);
-        return null;
-      }
-      const pack = this._packFromRaw(packRaw);
-      this.packCache.set(packId, pack);
-      return pack;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`Failed to load pack ${packId}: ${message}`);
-      this.packCache.set(packId, null);
-      return null;
-    }
+    const result = await this._fetchPack(packId, redis);
+    return result.pack;
   }
 
   /**
@@ -628,28 +556,25 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       }
     }
 
-    // The search Server Action ignores the difficulty filter server-side
-    // (verified: toTrueDL=0.1 and toTrueDL=10 return the same pool), so the
-    // range is enforced here, as a best-effort filter: sample a few random
-    // pages and return the first question whose pack TrueDL fits the range.
+    // A random question is selected by sampling a random pack id and loading
+    // `/pack/<id>`, which embeds every question plus the pack TrueDL. This
+    // covers the whole DB in one request per question (unlike /search, which
+    // is capped at 10 000 results and ignores difficulty filters).
     let lastError: Error | null = null;
-    let fallback: { normalized: RawQuestion; packData: Pack | null } | null = null;
-    let closest: {
-      normalized: RawQuestion;
-      packData: Pack | null;
-      distance: number;
-    } | null = null;
+    let fallback: { q: RawQuestion; pack: Pack | null } | null = null;
+    let closest: { q: RawQuestion; pack: Pack | null; distance: number } | null = null;
     const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
-    const maxPages = 6;
-    const maxChecks = 30;
-    let checks = 0;
+    // `random` accepts the first valid pack; difficulty ranges may need more
+    // samples, so budget accordingly (hard is the rarest range).
+    const maxSamples =
+      this.complexity === "random" ? 1 : this.complexity === "hard" ? 10 : 15;
 
-    for (let attempt = 1; attempt <= maxPages; attempt++) {
-      // Generate random page number between 1 and X
-      const randomPage = Math.floor(Math.random() * this.pages) + 1;
-      let questions: RawQuestion[];
+    for (let attempt = 1; attempt <= maxSamples; attempt++) {
+      // Sample a random pack id (gaps above the real max return 404 → resample)
+      const packId = Math.floor(Math.random() * PACK_ID_MAX) + 1;
+      let result: { pack: Pack | null; questions: RawQuestion[] };
       try {
-        questions = await this._fetchSearchQuestions(randomPage, redis);
+        result = await this._fetchPack(packId, redis);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (this._isClientError(lastError)) {
@@ -664,63 +589,55 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
         continue;
       }
 
-      if (questions.length === 0) {
+      const { pack } = result;
+      if (!pack || result.questions.length === 0) {
+        continue; // nonexistent pack id or empty pack
+      }
+
+      const questionData = result.questions[Math.floor(Math.random() * result.questions.length)];
+      if (!questionData) {
         continue;
       }
+      const normalized: RawQuestion = { ...questionData, packId: pack.id ?? packId };
 
-      const normalized = questions.map((q) => this._normalizeQuestion(q));
-      for (let i = normalized.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [normalized[i], normalized[j]] = [normalized[j], normalized[i]];
+      if (!fallback) {
+        fallback = { q: normalized, pack };
       }
 
-      for (const questionData of normalized) {
-        // The pack page is fetched anyway for TrueDL display, so checking the
-        // range here costs nothing extra.
-        const packData = questionData.packId
-          ? await this.loadPackData(questionData.packId, redis)
-          : null;
-        if (!fallback) {
-          fallback = { normalized: questionData, packData };
-        }
-        checks++;
-        const trueDl = this._trueDlOf(packData);
-        if (this._matchesComplexity(trueDl)) {
-          const questionLink = `${this.baseUrl}/question/${questionData.id}`;
+      const trueDl = this._trueDlOf(pack);
+      if (this._matchesComplexity(trueDl)) {
+        const questionLink = `${this.baseUrl}/question/${normalized.id}`;
 
-          return this.parseQuestionData(questionData, questionLink, packData);
-        }
-        // Track the candidate closest to the requested range so the fail-open
-        // fallback at least returns the "least wrong" question.
-        if (trueDl != null) {
-          const distance =
-            trueDl < range.min
-              ? range.min - trueDl
-              : trueDl > range.max
-                ? trueDl - range.max
-                : 0;
-          if (!closest || distance < closest.distance) {
-            closest = { normalized: questionData, packData, distance };
-          }
-        }
-        if (checks >= maxChecks) {
-          break;
+        return this.parseQuestionData(normalized, questionLink, pack);
+      }
+
+      // Track the candidate closest to the requested range so the fail-open
+      // fallback at least returns the "least wrong" question.
+      if (trueDl != null) {
+        const distance =
+          trueDl < range.min
+            ? range.min - trueDl
+            : trueDl > range.max
+              ? trueDl - range.max
+              : 0;
+        if (!closest || distance < closest.distance) {
+          closest = { q: normalized, pack, distance };
         }
       }
-      if (checks >= maxChecks) {
-        break;
-      }
+
+      // Pace requests to stay under the site's rate limits
+      await new Promise((r) => setTimeout(r, 150));
     }
 
     // Budget exhausted without finding an in-range question — fail open with
     // the closest match (or the first candidate) instead of failing the request.
     const best = closest ?? fallback;
     if (best) {
-      const questionLink = `${this.baseUrl}/question/${best.normalized.id}`;
-      return this.parseQuestionData(best.normalized, questionLink, best.packData);
+      const questionLink = `${this.baseUrl}/question/${best.q.id}`;
+      return this.parseQuestionData(best.q, questionLink, best.pack);
     }
 
-    // Should be unreachable — the loop always returns or throws
+    // Should be unreachable — the loop usually samples a valid pack quickly
     throw lastError ?? new Error("Failed to load question: unknown error");
   }
 }
