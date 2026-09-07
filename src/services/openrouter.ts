@@ -3,7 +3,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "openrouter/auto";
+const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "minimax/minimax-m3:free";
 const OPENROUTER_HINT_MAX_TOKENS = Number(process.env.OPENROUTER_HINT_MAX_TOKENS) || 300;
 
 const SYSTEM_INSTRUCTION = `
@@ -74,12 +74,10 @@ interface OpenRouterResponse {
   choices: OpenRouterChoice[];
 }
 
-/** Cap on generated hint length. Default 300 keeps the pre-authorized request
- * cost small enough to fit low OpenRouter credit balances (most providers
- * cap pre-auth at ~100–300 tokens when balance is near zero), while leaving
- * ~240 tokens for the hint itself under `reasoning.effort: "low"` (~20%
- * reserved for the thinking trace). Raise via OPENROUTER_HINT_MAX_TOKENS
- * after topping up credits. */
+/** Cap on generated hint length. Default 300 is well under the budget of
+ * free OpenRouter models (cost: 0) and provides comfortable room for a
+ * 2–4 sentence hint (~100–150 tokens used in practice). Raise via
+ * OPENROUTER_HINT_MAX_TOKENS if hints come back truncated. */
 const HINT_MAX_TOKENS = OPENROUTER_HINT_MAX_TOKENS;
 
 export async function generateHint(
@@ -138,14 +136,6 @@ export async function generateHint(
       messages,
       max_tokens: HINT_MAX_TOKENS,
       temperature: 0.7,
-      // `openrouter/auto` may route to reasoning-only providers that mandate
-      // chain-of-thought and reject `effort: "none"`. `low` reserves only
-      // ~20% of max_tokens for the thinking trace (~60) and leaves the
-      // remaining ~240 tokens for the hint itself.
-      reasoning: { effort: "low" },
-      // Bias the auto-router toward the cheapest provider first; cheaper
-      // providers are the ones most likely to fit a small credit balance.
-      provider: { sort: "price" },
     }),
   });
 
