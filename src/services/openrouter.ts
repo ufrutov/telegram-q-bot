@@ -3,6 +3,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "anthropic/claude";
 
 const SYSTEM_INSTRUCTION = `
 You are an expert question master for "What Where When" (Что Где Когда) —
@@ -129,14 +130,10 @@ export async function generateHint(
       "X-Title": "Telegram Q Bot",
     },
     body: JSON.stringify({
-      model: "openrouter/auto",
+      model: OPENROUTER_HINT_MODEL,
       messages,
       max_tokens: HINT_MAX_TOKENS,
       temperature: 0.7,
-      // Disable chain-of-thought: openrouter/auto may route to reasoning models
-      // (e.g. deepseek-v4-pro) that otherwise burn max_tokens on reasoning and
-      // return content:null — leaving no room for the hint itself.
-      reasoning: { effort: "none" },
     }),
   });
 
