@@ -3,7 +3,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "anthropic/claude";
+const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "anthropic/claude-3-haiku";
 
 const SYSTEM_INSTRUCTION = `
 You are an expert question master for "What Where When" (Что Где Когда) —
