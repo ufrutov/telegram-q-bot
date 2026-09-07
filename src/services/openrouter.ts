@@ -4,6 +4,7 @@ loadEnv({ path: ".env.local" });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "openrouter/auto";
+const OPENROUTER_HINT_MAX_TOKENS = Number(process.env.OPENROUTER_HINT_MAX_TOKENS) || 300;
 
 const SYSTEM_INSTRUCTION = `
 You are an expert question master for "What Where When" (Что Где Когда) —
@@ -73,12 +74,13 @@ interface OpenRouterResponse {
   choices: OpenRouterChoice[];
 }
 
-/** Cap on generated hint length. Sized so that with `reasoning.effort: "medium"`
- * (which reserves ~50% of max_tokens for the thinking trace) the hint itself
- * still has ~750 tokens of room — well above the 2–4 sentence target — while
- * avoiding 402s from providers that default max_tokens to a model's full
- * context window (e.g. 65536) when it's left unset. */
-const HINT_MAX_TOKENS = 1500;
+/** Cap on generated hint length. Default 300 keeps the pre-authorized request
+ * cost small enough to fit low OpenRouter credit balances (most providers
+ * cap pre-auth at ~100–300 tokens when balance is near zero), while leaving
+ * ~240 tokens for the hint itself under `reasoning.effort: "low"` (~20%
+ * reserved for the thinking trace). Raise via OPENROUTER_HINT_MAX_TOKENS
+ * after topping up credits. */
+const HINT_MAX_TOKENS = OPENROUTER_HINT_MAX_TOKENS;
 
 export async function generateHint(
   question: string,
@@ -137,10 +139,13 @@ export async function generateHint(
       max_tokens: HINT_MAX_TOKENS,
       temperature: 0.7,
       // `openrouter/auto` may route to reasoning-only providers that mandate
-      // chain-of-thought and reject `effort: "none"`. `medium` reserves ~50%
-      // of max_tokens for the thinking trace (~750) and leaves the other half
-      // for the hint itself.
-      reasoning: { effort: "medium" },
+      // chain-of-thought and reject `effort: "none"`. `low` reserves only
+      // ~20% of max_tokens for the thinking trace (~60) and leaves the
+      // remaining ~240 tokens for the hint itself.
+      reasoning: { effort: "low" },
+      // Bias the auto-router toward the cheapest provider first; cheaper
+      // providers are the ones most likely to fit a small credit balance.
+      provider: { sort: "price" },
     }),
   });
 
