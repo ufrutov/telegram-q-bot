@@ -3,7 +3,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "anthropic/claude-3-haiku";
+const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "openrouter/auto";
 
 const SYSTEM_INSTRUCTION = `
 You are an expert question master for "What Where When" (Что Где Когда) —
@@ -73,10 +73,12 @@ interface OpenRouterResponse {
   choices: OpenRouterChoice[];
 }
 
-/** Cap on generated hint length. Hints are 2-4 sentences, so this is generous
- * headroom while avoiding 402s from providers that default max_tokens to a
- * model's full context window (e.g. 65536) when it's left unset. */
-const HINT_MAX_TOKENS = 500;
+/** Cap on generated hint length. Sized so that with `reasoning.effort: "medium"`
+ * (which reserves ~50% of max_tokens for the thinking trace) the hint itself
+ * still has ~750 tokens of room — well above the 2–4 sentence target — while
+ * avoiding 402s from providers that default max_tokens to a model's full
+ * context window (e.g. 65536) when it's left unset. */
+const HINT_MAX_TOKENS = 1500;
 
 export async function generateHint(
   question: string,
@@ -134,6 +136,11 @@ export async function generateHint(
       messages,
       max_tokens: HINT_MAX_TOKENS,
       temperature: 0.7,
+      // `openrouter/auto` may route to reasoning-only providers that mandate
+      // chain-of-thought and reject `effort: "none"`. `medium` reserves ~50%
+      // of max_tokens for the thinking trace (~750) and leaves the other half
+      // for the hint itself.
+      reasoning: { effort: "medium" },
     }),
   });
 
