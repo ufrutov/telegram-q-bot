@@ -20,6 +20,7 @@
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
+    "test:integration": "npm run build && node test/supabase-question-state.integration.cjs",
     "validate": "oxlint && oxfmt --check && tsc --noEmit"
   },
   "dependencies": {

@@ -9,7 +9,11 @@ import type { RedisClientType } from "redis";
 
 import QuestionLoader from "@/lib/QuestionLoader/QuestionLoader.js";
 import { MESSAGES } from "@/bot/constants.js";
-import { recordQuestionSent } from "@/services/questionSendStore.js";
+import {
+  recordQuestionSent,
+  type AnswerPayload,
+  type HintPayload,
+} from "@/services/questionSendStore.js";
 import { recordLoadFailure } from "@/services/loadFailureStore.js";
 import type { Complexity, Question } from "@/types/question.js";
 import type { ThreadOpts } from "@/types/telegram.js";
@@ -19,22 +23,7 @@ interface SendQuestionResult {
   questionMessageId: number;
 }
 
-interface AnswerPayload {
-  answer: string;
-  answerPreview: string[];
-  packId: string | number | null;
-}
-
-interface HintPayload {
-  question: string;
-  answer: string;
-  description: string | undefined;
-  questionMessageId: number;
-  questionPreview?: string[];
-}
-
 const DEFAULT_TARGET = "gotquestions.online";
-const REDIS_TTL_SECONDS = 3600 * 24; // 24 hours
 
 /**
  * Sends a question message to a Telegram chat with answer/hint inline buttons.
@@ -44,10 +33,10 @@ const REDIS_TTL_SECONDS = 3600 * 24; // 24 hours
  *     separate "Ответ на вопрос" message with inline buttons (reply to media).
  *   - If no images → single text message with inline buttons attached.
  *
- * Redis persistence:
- *   - Stores the answer (with optional answerPreview images) under `answer:{chatId}:{id}`
- *   - Stores hint context (question, answer, description, previews) under `hint:{chatId}:{id}`
- *   - Both keys expire after 24 hours.
+ * Supabase persistence:
+ *   - Stores the answer and hint context on the matching question-send row.
+ *   - The existing answer/hint callback keys are retained for Telegram UI
+ *     compatibility, but no question interaction state is stored in Redis.
  *
  * Forum topics:
  *   - When `threadId` is provided and the chat is a forum supergroup, all outgoing
@@ -147,31 +136,14 @@ export async function sendQuestionMessage(
         },
       });
 
-      if (redisClient) {
-        const answerPreview = questionData.answerPreview ?? [];
-        const answerPayload: AnswerPayload = {
-          answer,
-          answerPreview,
-          packId: questionData.packId ?? null,
-        };
-        await redisClient.setEx(answerKey, REDIS_TTL_SECONDS, JSON.stringify(answerPayload));
-
-        const hintPayload: HintPayload = {
-          question: questionData.question ?? "",
-          answer: questionData.answer ?? "",
-          description: questionData.description,
-          questionMessageId: questionMessage.message_id,
-          questionPreview: questionData.questionPreview,
-        };
-        await redisClient.setEx(hintKey, REDIS_TTL_SECONDS, JSON.stringify(hintPayload));
-      }
-
       await recordQuestionSent({
         chatId,
         threadId,
         telegramMessageId: separate.message_id,
         questionId: questionData.id,
         complexity,
+        answerPayload: createAnswerPayload(answer, questionData, questionMessage.message_id),
+        hintPayload: createHintPayload(questionData, questionMessage.message_id),
         title,
       });
       return { answerKey, questionMessageId: separate.message_id };
@@ -196,33 +168,40 @@ export async function sendQuestionMessage(
     },
   });
 
-  if (redisClient) {
-    const answerPreview = questionData.answerPreview ?? [];
-    const answerPayload: AnswerPayload = {
-      answer,
-      answerPreview,
-      packId: questionData.packId ?? null,
-    };
-    await redisClient.setEx(answerKey, REDIS_TTL_SECONDS, JSON.stringify(answerPayload));
-
-    const hintPayload: HintPayload = {
-      question: questionData.question ?? "",
-      answer: questionData.answer ?? "",
-      description: questionData.description,
-      questionMessageId: questionMessage.message_id,
-    };
-    await redisClient.setEx(hintKey, REDIS_TTL_SECONDS, JSON.stringify(hintPayload));
-  }
-
   await recordQuestionSent({
     chatId,
     threadId,
     telegramMessageId: questionMessage.message_id,
     questionId: questionData.id,
     complexity,
+    answerPayload: createAnswerPayload(answer, questionData),
+    hintPayload: createHintPayload(questionData, questionMessage.message_id),
     title,
   });
   return { answerKey, questionMessageId: questionMessage.message_id };
+}
+
+function createAnswerPayload(
+  answer: string,
+  questionData: Question,
+  questionMessageId?: number,
+): AnswerPayload {
+  return {
+    answer,
+    answerPreview: questionData.answerPreview ?? [],
+    packId: questionData.packId ?? null,
+    ...(questionMessageId ? { questionMessageId } : {}),
+  };
+}
+
+function createHintPayload(questionData: Question, questionMessageId: number): HintPayload {
+  return {
+    question: questionData.question ?? "",
+    answer: questionData.answer ?? "",
+    description: questionData.description,
+    questionMessageId,
+    questionPreview: questionData.questionPreview,
+  };
 }
 
 export default sendQuestionMessage;

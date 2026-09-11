@@ -102,8 +102,8 @@ export default async function callbackHandler(
       await answeredCallback(bot, callbackQuery, parsed, threadId);
     }
   } else if ("answerKey" in parsed) {
-    await answerCallback(bot, redis, callbackQuery, parsed, threadId);
+    await answerCallback(bot, callbackQuery, parsed, threadId);
   } else if ("hintKey" in parsed) {
-    await hintCallback(bot, redis, callbackQuery, parsed, threadId);
+    await hintCallback(bot, callbackQuery, parsed, threadId);
   }
 }

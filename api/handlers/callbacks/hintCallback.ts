@@ -3,13 +3,12 @@
  */
 
 import type TelegramBot from "node-telegram-bot-api";
-import type { RedisClientType } from "redis";
 
 import { generateHint, formatErrorMessage } from "@/services/openrouter.js";
 import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import { resolveChatTitle } from "@/utils/telegramChat.js";
-import { recordHintResult } from "@/services/questionSendStore.js";
+import { getQuestionSendContext, recordHintResult } from "@/services/questionSendStore.js";
 import type { ThreadOpts } from "@/types/telegram.js";
 
 interface TelegramCallbackQuery {
@@ -33,17 +32,8 @@ interface HintCallbackAction {
   hintKey: string;
 }
 
-interface HintData {
-  question: string;
-  answer: string;
-  description?: string;
-  questionMessageId?: number;
-  questionPreview?: string[];
-}
-
 export default async function hintCallback(
   bot: TelegramBot,
-  redis: RedisClientType | null,
   callbackQuery: TelegramCallbackQuery,
   parsed: HintCallbackAction,
   threadId: number | undefined,
@@ -59,15 +49,22 @@ export default async function hintCallback(
   try {
     await bot.answerCallbackQuery(callbackQuery.id);
 
-    const hintDataStr = redis ? await redis.get(hintKey) : null;
+    const buttonMessageId = callbackQuery.message?.message_id;
+    if (buttonMessageId === undefined) return;
 
-    if (!hintDataStr) {
+    const context = await getQuestionSendContext(chatId, threadId, buttonMessageId);
+    if (!context) {
       await bot.sendMessage(chatId, MESSAGES.HINT_EXPIRED, threadOpts);
       return;
     }
 
-    const hintData = JSON.parse(hintDataStr) as HintData;
-    const { question, answer, description, questionMessageId, questionPreview = [] } = hintData;
+    const {
+      question,
+      answer,
+      description,
+      questionMessageId,
+      questionPreview = [],
+    } = context.hintPayload;
 
     // Remove hint button from keyboard (keep answer button)
     try {
@@ -113,21 +110,14 @@ export default async function hintCallback(
       disable_web_page_preview: true,
     });
 
-    const buttonMessageId = callbackQuery.message?.message_id;
-    if (buttonMessageId !== undefined) {
-      await recordHintResult({
-        chatId,
-        threadId,
-        telegramMessageId: buttonMessageId,
-        ok: hintOk,
-        ...(hintError ? { error: hintError } : {}),
-        title: resolveChatTitle(callbackQuery.message?.chat),
-      });
-    }
-
-    if (redis) {
-      await redis.del(hintKey);
-    }
+    await recordHintResult({
+      chatId,
+      threadId,
+      telegramMessageId: buttonMessageId,
+      ok: hintOk,
+      ...(hintError ? { error: hintError } : {}),
+      title: resolveChatTitle(callbackQuery.message?.chat),
+    });
   } catch (error) {
     console.error("Error handling callback query (hint):", error);
     await bot.answerCallbackQuery(callbackQuery.id, {

@@ -49,6 +49,8 @@ create table if not exists "tq-bot-question_sends" (
   hint_failed         boolean not null default false,
   hint_at             timestamptz,
   question_answered   boolean,
+  answer_payload      jsonb,
+  hint_payload        jsonb,
   meta                jsonb,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now(),

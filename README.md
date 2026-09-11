@@ -105,16 +105,16 @@ and rewrites the `@/*` path alias to relative paths for Vercel.
 
 Add variables in your Vercel project (**Settings → Environment Variables**):
 
-| Variable                    | Required       | Description                                                    |
-| --------------------------- | -------------- | -------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`        | Yes            | Telegram bot token from BotFather                              |
-| `GOTQUESTIONS_EMAIL`        | Yes            | Email for gotquestions.online bot account                      |
-| `GOTQUESTIONS_PASSWORD`     | Yes            | Password for gotquestions.online bot account                   |
-| `SUPABASE_URL`              | For cron/stats | Supabase project URL                                           |
-| `SUPABASE_SERVICE_ROLE_KEY` | For cron/stats | Server-side key (never expose to clients)                      |
-| `REDIS_URL`                 | Recommended    | Redis connection for answer/hint storage and JWT token caching |
-| `OPENROUTER_API_KEY`        | For hints      | OpenRouter API key for AI-generated hints                      |
-| `CRON_SECRET`               | No             | Optional secret for manual cron invocations                    |
+| Variable                    | Required      | Description                                                      |
+| --------------------------- | ------------- | ---------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`        | Yes           | Telegram bot token from BotFather                                |
+| `GOTQUESTIONS_EMAIL`        | Yes           | Email for gotquestions.online bot account                        |
+| `GOTQUESTIONS_PASSWORD`     | Yes           | Password for gotquestions.online bot account                     |
+| `SUPABASE_URL`              | For bot state | Supabase project URL for durable answers, hints, cron, and stats |
+| `SUPABASE_SERVICE_ROLE_KEY` | For bot state | Server-side key (never expose to clients)                        |
+| `REDIS_URL`                 | Optional      | Redis connection for gotquestions.online session-cookie caching  |
+| `OPENROUTER_API_KEY`        | For hints     | OpenRouter API key for AI-generated hints                        |
+| `CRON_SECRET`               | No            | Optional secret for manual cron invocations                      |
 
 > `CRON_TARGET_CHATS` was removed. Per-chat schedules are managed via the
 > `/cron` command and stored in Supabase.
@@ -198,13 +198,12 @@ Replace `<YOUR_BOT_TOKEN>` and the domain with your values.
 
 ## Authentication
 
-The bot authenticates with `gotquestions.online` API using JWT tokens via NextAuth:
+The bot authenticates with `gotquestions.online` using Better Auth session cookies:
 
-- **Login flow**: CSRF token → credentials → session cookie → JWT token
-- **Session caching**: Redis stores the session cookie (28d TTL) to minimize logins to ~1/month
-- **JWT caching**: In-memory cache per invocation + Redis (~59min TTL); auto-refreshes on 401
-- **Header format**: `Authorization: JWT <token>` (Bearer prefix is not used by this API)
-- **Graceful degradation**: If Redis is unavailable, falls back to in-memory only
+- **Login flow**: email/password sign-in → session cookie validation
+- **Session caching**: Redis stores the Better Auth session cookie until shortly before its expiry (normally about 7 days).
+- **In-memory fallback**: A warm serverless instance reuses its session cookie when Redis is unavailable.
+- **Recovery**: A 401 clears the cached cookie and performs a fresh login.
 
 ## Commands
 
