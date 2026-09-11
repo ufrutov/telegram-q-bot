@@ -205,6 +205,22 @@ The bot authenticates with `gotquestions.online` using Better Auth session cooki
 - **In-memory fallback**: A warm serverless instance reuses its session cookie when Redis is unavailable.
 - **Recovery**: A 401 clears the cached cookie and performs a fresh login.
 
+## Integration tests
+
+The durable answer and hint state test writes a temporary chat row to a dedicated
+Supabase test project and removes it afterward. It never falls back to the
+normal `SUPABASE_URL` credentials.
+
+```bash
+SUPABASE_TEST_URL=https://YOUR-TEST-PROJECT.supabase.co \
+SUPABASE_TEST_SERVICE_ROLE_KEY=... \
+npm run test:integration
+```
+
+Apply every migration in `supabase/migrations/` to the test project first. GitHub
+Actions uses the repository variable `SUPABASE_TEST_URL` and repository secret
+`SUPABASE_TEST_SERVICE_ROLE_KEY` for the same test.
+
 ## Commands
 
 | Command           | Description                                                      |
