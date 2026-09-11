@@ -48,6 +48,7 @@ interface RecordQuestionSentArgs {
   complexity: Complexity;
   answerPayload: AnswerPayload;
   hintPayload: HintPayload;
+  isIntegrationTest?: boolean;
 }
 
 /**
@@ -64,6 +65,7 @@ export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<
     complexity,
     answerPayload,
     hintPayload,
+    isIntegrationTest = false,
     title,
   } = args;
 
@@ -85,6 +87,7 @@ export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<
       complexity,
       answer_payload: answerPayload,
       hint_payload: hintPayload,
+      is_integration_test: isIntegrationTest,
     };
     const { error } = await supabase
       .from(TABLES.questionSends)

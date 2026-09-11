@@ -207,19 +207,20 @@ The bot authenticates with `gotquestions.online` using Better Auth session cooki
 
 ## Integration tests
 
-The durable answer and hint state test writes a temporary chat row to a dedicated
-Supabase test project and removes it afterward. It never falls back to the
-normal `SUPABASE_URL` credentials.
+The durable answer and hint state test writes a temporary chat row and removes
+it afterward. Every question-send row created by the test is marked
+`is_integration_test = true`; cleanup refuses to delete an unmarked row.
 
 ```bash
-SUPABASE_TEST_URL=https://YOUR-TEST-PROJECT.supabase.co \
-SUPABASE_TEST_SERVICE_ROLE_KEY=... \
+SUPABASE_INTEGRATION_URL=https://YOUR-PROJECT.supabase.co \
+SUPABASE_INTEGRATION_SERVICE_ROLE_KEY=... \
 npm run test:integration
 ```
 
-Apply every migration in `supabase/migrations/` to the test project first. GitHub
-Actions uses the repository variable `SUPABASE_TEST_URL` and repository secret
-`SUPABASE_TEST_SERVICE_ROLE_KEY` for the same test.
+Apply every migration in `supabase/migrations/` to the target project first. For
+production-backed CI, GitHub Actions uses the same names as `.env.local`:
+repository variable `SUPABASE_URL` and repository secret
+`SUPABASE_SERVICE_ROLE_KEY`.
 
 ## Commands
 

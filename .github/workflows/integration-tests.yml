@@ -15,8 +15,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     env:
-      SUPABASE_TEST_URL: ${{ vars.SUPABASE_TEST_URL }}
-      SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
+      SUPABASE_INTEGRATION_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_INTEGRATION_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
     steps:
       - name: Checkout code
@@ -33,8 +33,8 @@ jobs:
 
       - name: Check test database configuration
         run: |
-          test -n "$SUPABASE_TEST_URL" || { echo "::error::Set the SUPABASE_TEST_URL Actions variable."; exit 1; }
-          test -n "$SUPABASE_TEST_SERVICE_ROLE_KEY" || { echo "::error::Set the SUPABASE_TEST_SERVICE_ROLE_KEY Actions secret."; exit 1; }
+          test -n "$SUPABASE_INTEGRATION_URL" || { echo "::error::Set the SUPABASE_URL Actions variable."; exit 1; }
+          test -n "$SUPABASE_INTEGRATION_SERVICE_ROLE_KEY" || { echo "::error::Set the SUPABASE_SERVICE_ROLE_KEY Actions secret."; exit 1; }
 
       - name: Test durable question callback state
         run: npm run test:integration

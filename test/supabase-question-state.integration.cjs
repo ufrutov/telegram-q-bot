@@ -1,11 +1,13 @@
 /**
  * Integration test for durable answer/hint callback state.
  *
- * Run with dedicated disposable Supabase credentials only:
- *   SUPABASE_TEST_URL=... SUPABASE_TEST_SERVICE_ROLE_KEY=... npm run test:integration
+ * Run with Supabase integration credentials only:
+ *   SUPABASE_INTEGRATION_URL=... SUPABASE_INTEGRATION_SERVICE_ROLE_KEY=... npm run test:integration
  *
- * The test is skipped unless both variables are present. It deliberately does
- * not fall back to SUPABASE_URL, preventing accidental writes to production.
+ * Each created question-send row is marked `is_integration_test = true`, and
+ * cleanup verifies that marker before deleting its test chat. The test is
+ * skipped unless both variables are present; it never falls back to the bot's
+ * normal SUPABASE_URL credentials.
  */
 
 const path = require("path");
@@ -16,12 +18,12 @@ require("dotenv").config({
   path: path.resolve(__dirname, "../.env.local"),
 });
 
-const testUrl = process.env.SUPABASE_TEST_URL;
-const testKey = process.env.SUPABASE_TEST_SERVICE_ROLE_KEY;
+const testUrl = process.env.SUPABASE_INTEGRATION_URL;
+const testKey = process.env.SUPABASE_INTEGRATION_SERVICE_ROLE_KEY;
 
 if (!testUrl || !testKey) {
   console.log(
-    "Skipping Supabase integration test: SUPABASE_TEST_URL and SUPABASE_TEST_SERVICE_ROLE_KEY are required.",
+    "Skipping Supabase integration test: SUPABASE_INTEGRATION_URL and SUPABASE_INTEGRATION_SERVICE_ROLE_KEY are required.",
   );
   process.exit(0);
 }
@@ -58,6 +60,7 @@ async function main() {
         description: "Тестовый комментарий",
         questionPreview: ["https://example.com/question.jpg"],
       },
+      isIntegrationTest: true,
     });
 
     const context = await getQuestionSendContext(chatId, undefined, telegramMessageId);
@@ -74,11 +77,34 @@ async function main() {
 
     console.log("✓ Supabase question callback state persisted and loaded successfully.");
   } finally {
-    const { error } = await supabase.from("tq-bot-chats").delete().eq("chat_id", chatId);
-    if (error) {
-      console.error("Failed to clean up integration-test chat:", error.message);
-      process.exitCode = 1;
-    }
+    await cleanup();
+  }
+}
+
+async function cleanup() {
+  const { data: testChat, error: findChatError } = await supabase
+    .from("tq-bot-chats")
+    .select("id")
+    .eq("chat_id", chatId)
+    .maybeSingle();
+  if (findChatError || !testChat) {
+    throw new Error(`Failed to find integration-test chat for cleanup: ${findChatError?.message}`);
+  }
+
+  const { data: testSend, error: findSendError } = await supabase
+    .from("tq-bot-question_sends")
+    .select("id")
+    .eq("chat_id", testChat.id)
+    .eq("telegram_message_id", telegramMessageId)
+    .eq("is_integration_test", true)
+    .maybeSingle();
+  if (findSendError || !testSend) {
+    throw new Error("Integration-test marker missing; refusing to delete test chat.");
+  }
+
+  const { error } = await supabase.from("tq-bot-chats").delete().eq("id", testChat.id);
+  if (error) {
+    throw new Error(`Failed to clean up integration-test chat: ${error.message}`);
   }
 }
 
