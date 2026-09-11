@@ -342,9 +342,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       ?.map((t) => t.truedl)
       .filter((v): v is string | number => v != null);
     const trueDl = this._toNumbers(
-      legacyTruedl && legacyTruedl.length > 0
-        ? legacyTruedl
-        : (packRaw.trueDl ?? packRaw.truedls),
+      legacyTruedl && legacyTruedl.length > 0 ? legacyTruedl : (packRaw.trueDl ?? packRaw.truedls),
     );
     return {
       id: packRaw.id,
@@ -566,8 +564,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
     // `random` accepts the first valid pack; difficulty ranges may need more
     // samples, so budget accordingly (hard is the rarest range).
-    const maxSamples =
-      this.complexity === "random" ? 1 : this.complexity === "hard" ? 10 : 15;
+    const maxSamples = this.complexity === "random" ? 1 : this.complexity === "hard" ? 10 : 15;
 
     for (let attempt = 1; attempt <= maxSamples; attempt++) {
       // Sample a random pack id (gaps above the real max return 404 → resample)
@@ -582,9 +579,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
           throw new Error(`Failed to load question: ${lastError.message}`);
         }
         const delay = this._getRetryDelay(attempt);
-        console.warn(
-          `Attempt ${attempt} failed: ${lastError.message}. Retrying in ${delay}ms...`,
-        );
+        console.warn(`Attempt ${attempt} failed: ${lastError.message}. Retrying in ${delay}ms...`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -615,11 +610,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       // fallback at least returns the "least wrong" question.
       if (trueDl != null) {
         const distance =
-          trueDl < range.min
-            ? range.min - trueDl
-            : trueDl > range.max
-              ? trueDl - range.max
-              : 0;
+          trueDl < range.min ? range.min - trueDl : trueDl > range.max ? trueDl - range.max : 0;
         if (!closest || distance < closest.distance) {
           closest = { q: normalized, pack, distance };
         }
