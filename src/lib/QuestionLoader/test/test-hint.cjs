@@ -16,9 +16,9 @@ async function main() {
     await import("../../../../dist/src/lib/QuestionLoader/QuestionLoader.js");
   const { generateHint } = await import("../../../../dist/src/services/openrouter.js");
 
-  console.log("Loading question 376212 from gotquestions.online…");
-  const loader = QuestionLoader("gotquestions.online");
-  const question = await loader.loadQuestion(376212);
+  console.log("Loading a random question from gotquestions.online…");
+  const loader = QuestionLoader("gotquestions.online", "random");
+  const question = await loader.loadQuestion();
 
   console.log("\n📝 Question:");
   console.log(question.question);
@@ -27,17 +27,20 @@ async function main() {
   if (question.description) {
     console.log("\n💬 Description (first 200 chars):");
     console.log(
-      question.description.slice(0, 200) +
-        (question.description.length > 200 ? "…" : ""),
+      question.description.slice(0, 200) + (question.description.length > 200 ? "…" : ""),
     );
   }
   if (question.questionPreview?.length) {
     console.log("\n🖼️ Preview images:", question.questionPreview);
   }
-
   console.log("\n--- Generating hint via OpenRouter ---");
   console.log(`model:       ${process.env.OPENROUTER_HINT_MODEL ?? "(default)"}`);
-  console.log(`max_tokens:  ${process.env.OPENROUTER_HINT_MAX_TOKENS ?? "(default)"}`);
+  const configuredMaxTokens = Number(process.env.OPENROUTER_HINT_MAX_TOKENS);
+  const effectiveMaxTokens =
+    Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
+      ? Math.min(Math.floor(configuredMaxTokens), 30)
+      : 30;
+  console.log(`max_tokens:  ${effectiveMaxTokens}`);
 
   const hint = await generateHint(
     question.question ?? "",

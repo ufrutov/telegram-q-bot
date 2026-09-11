@@ -7,9 +7,26 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 // notice. Let OpenRouter select from its maintained model pool by default;
 // deployments can still pin a model through OPENROUTER_HINT_MODEL when needed.
 const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "openrouter/auto";
-const OPENROUTER_HINT_MAX_TOKENS = Number(process.env.OPENROUTER_HINT_MAX_TOKENS) || 300;
+const DEFAULT_HINT_MAX_TOKENS = 30;
+const MAX_HINT_MAX_TOKENS = 30;
+const configuredHintMaxTokens = Number(process.env.OPENROUTER_HINT_MAX_TOKENS);
+// Keep the reservation small enough for low-credit OpenRouter accounts. A
+// caller may choose a smaller value, but must not accidentally reserve more.
+const HINT_MAX_TOKENS =
+  Number.isFinite(configuredHintMaxTokens) && configuredHintMaxTokens > 0
+    ? Math.min(Math.floor(configuredHintMaxTokens), MAX_HINT_MAX_TOKENS)
+    : DEFAULT_HINT_MAX_TOKENS;
 
 const SYSTEM_INSTRUCTION = `
+You write Russian hints for a "What? Where? When?" question.
+Give one precise logical connection that helps solve the question without
+stating the correct answer or its direct synonym. Return only the hint text.
+`.trim();
+
+/*
+Previous extended instruction, retained for use when the completion budget is
+raised above the low-credit 30-token limit:
+
 You are an expert question master for "What Where When" (Что Где Когда) —
 the intellectual team trivia format where players deduce answers through logic,
 not memory alone.
@@ -50,7 +67,7 @@ OUTPUT FORMAT:
 - Return ONLY the hint text as plain prose
 - NO labels, NO markdown, NO answer references
 - DO NOT include words like "ответ", "ответ:", "это", or any hint to the answer
-`.trim();
+*/
 
 interface OpenRouterTextContent {
   type: "text";
@@ -76,11 +93,6 @@ interface OpenRouterChoice {
 interface OpenRouterResponse {
   choices: OpenRouterChoice[];
 }
-
-/** Cap on generated hint length. Default 300 provides comfortable room for a
- * 2–4 sentence hint (~100–150 tokens used in practice). Raise via
- * OPENROUTER_HINT_MAX_TOKENS if hints come back truncated. */
-const HINT_MAX_TOKENS = OPENROUTER_HINT_MAX_TOKENS;
 
 export async function generateHint(
   question: string,
@@ -117,7 +129,7 @@ export async function generateHint(
 
   userContent.push({
     type: "text",
-    text: "Write a helpful hint in Russian language. Important: Do NOT include the answer in your hint — give only a logical clue.",
+    text: "Write 1–2 very short Russian sentences, no more than 8 words total. End with punctuation. Do not reveal the answer; give only a logical clue.",
   });
 
   const messages: OpenRouterMessage[] = [
@@ -138,6 +150,7 @@ export async function generateHint(
       messages,
       max_tokens: HINT_MAX_TOKENS,
       temperature: 0.7,
+      reasoning: { effort: "none" },
     }),
   });
 
@@ -148,10 +161,11 @@ export async function generateHint(
 
   const data = (await response.json()) as OpenRouterResponse;
   const content = data.choices[0]?.message.content;
-  if (!content) {
+  const hint = content?.trim();
+  if (!hint) {
     throw new Error("OpenRouter returned no message content");
   }
-  return content;
+  return hint;
 }
 
 export function formatErrorMessage(error: unknown): string {
