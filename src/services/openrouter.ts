@@ -3,7 +3,10 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "minimax/minimax-m3:free";
+// `:free` model variants are promotional capacity and can disappear without
+// notice. Let OpenRouter select from its maintained model pool by default;
+// deployments can still pin a model through OPENROUTER_HINT_MODEL when needed.
+const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "openrouter/auto";
 const OPENROUTER_HINT_MAX_TOKENS = Number(process.env.OPENROUTER_HINT_MAX_TOKENS) || 300;
 
 const SYSTEM_INSTRUCTION = `
@@ -74,8 +77,7 @@ interface OpenRouterResponse {
   choices: OpenRouterChoice[];
 }
 
-/** Cap on generated hint length. Default 300 is well under the budget of
- * free OpenRouter models (cost: 0) and provides comfortable room for a
+/** Cap on generated hint length. Default 300 provides comfortable room for a
  * 2–4 sentence hint (~100–150 tokens used in practice). Raise via
  * OPENROUTER_HINT_MAX_TOKENS if hints come back truncated. */
 const HINT_MAX_TOKENS = OPENROUTER_HINT_MAX_TOKENS;
