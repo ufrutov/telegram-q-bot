@@ -39,7 +39,7 @@ async function main() {
   const effectiveMaxTokens =
     Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
       ? Math.min(Math.floor(configuredMaxTokens), 30)
-      : 30;
+      : 20;
   console.log(`max_tokens:  ${effectiveMaxTokens}`);
 
   const hint = await generateHint(

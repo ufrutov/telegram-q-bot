@@ -7,7 +7,7 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 // notice. Let OpenRouter select from its maintained model pool by default;
 // deployments can still pin a model through OPENROUTER_HINT_MODEL when needed.
 const OPENROUTER_HINT_MODEL = process.env.OPENROUTER_HINT_MODEL ?? "openrouter/auto";
-const DEFAULT_HINT_MAX_TOKENS = 30;
+const DEFAULT_HINT_MAX_TOKENS = 20;
 const MAX_HINT_MAX_TOKENS = 30;
 const configuredHintMaxTokens = Number(process.env.OPENROUTER_HINT_MAX_TOKENS);
 // Keep the reservation small enough for low-credit OpenRouter accounts. A
@@ -17,11 +17,20 @@ const HINT_MAX_TOKENS =
     ? Math.min(Math.floor(configuredHintMaxTokens), MAX_HINT_MAX_TOKENS)
     : DEFAULT_HINT_MAX_TOKENS;
 
+// The prompt is kept at a hard minimum so the whole request fits the small
+// per-provider credit budgets of low-balance OpenRouter accounts. The
+// description is intentionally omitted: it is the largest token block and
+// often paraphrases the answer (leak risk). The completion is bounded to a
+// word count that fits the 20-token budget without truncation.
 const SYSTEM_INSTRUCTION = `
-You write Russian hints for a "What? Where? When?" question.
-Give one precise logical connection that helps solve the question without
-stating the correct answer or its direct synonym. Return only the hint text.
+Give a Russian hint for the question. One short sentence, at most 10 words.
+Never reveal the answer or a synonym of it.
 `.trim();
+
+// Hints sometimes arrive prefixed with a label (e.g. "Подсказка: ...") or a
+// stray colon; strip them so only the hint text is shown.
+const HINT_LABEL_PREFIX = /^\s*(?:Подсказка|Подсказка\s*[:\-–]|Hint\s*[:\-–])+/i;
+const HINT_STRAY_COLON = /^\s*[:：]\s*/;
 
 /*
 Previous extended instruction, retained for use when the completion budget is
@@ -100,6 +109,9 @@ export async function generateHint(
   description: string | undefined,
   questionPreview: string[] = [],
 ): Promise<string> {
+  const questionText = question.slice(0, 220);
+  const answerText = correctAnswer.slice(0, 60);
+
   const userContent: OpenRouterUserContent[] = [];
 
   if (questionPreview && questionPreview.length > 0) {
@@ -117,19 +129,7 @@ export async function generateHint(
 
   userContent.push({
     type: "text",
-    text: `Question: ${question}\nCorrect Answer: ${correctAnswer}`,
-  });
-
-  if (description) {
-    userContent.push({
-      type: "text",
-      text: `Description: ${description}`,
-    });
-  }
-
-  userContent.push({
-    type: "text",
-    text: "Write 1–2 very short Russian sentences, no more than 8 words total. End with punctuation. Do not reveal the answer; give only a logical clue.",
+    text: `Question: ${questionText}\nCorrect Answer: ${answerText}`,
   });
 
   const messages: OpenRouterMessage[] = [
@@ -137,31 +137,49 @@ export async function generateHint(
     { role: "user", content: userContent },
   ];
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://telegram-q-bot.vercel.app",
-      "X-Title": "Telegram Q Bot",
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_HINT_MODEL,
-      messages,
-      max_tokens: HINT_MAX_TOKENS,
-      temperature: 0.7,
-      reasoning: { effort: "none" },
-    }),
-  });
-
-  if (!response.ok) {
+  // The auto router may pick a model that mandates reasoning (rejects
+  // `effort: "none"` with 400) or one where disabling reasoning keeps the
+  // request affordable. Try `none` first, then retry with low effort only
+  // when the provider explicitly requires reasoning.
+  const basePayload = {
+    model: OPENROUTER_HINT_MODEL,
+    messages,
+    max_tokens: HINT_MAX_TOKENS,
+    temperature: 0.7,
+  };
+  let response: Response | null = null;
+  let lastError: string | null = null;
+  for (const reasoning of [{ effort: "none" }, { effort: "low" }]) {
+    response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://telegram-q-bot.vercel.app",
+        "X-Title": "Telegram Q Bot",
+      },
+      body: JSON.stringify({ ...basePayload, reasoning }),
+    });
+    if (response.ok) {
+      break;
+    }
     const errorText = await response.text();
-    throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
+    lastError = `${response.status} - ${errorText}`;
+    // Only reasoning-required providers are worth a second attempt.
+    if (!(response.status === 400 && /reasoning is mandatory/i.test(errorText))) {
+      response = null;
+      break;
+    }
+    response = null;
+  }
+
+  if (!response) {
+    throw new Error(`OpenRouter API error: ${lastError}`);
   }
 
   const data = (await response.json()) as OpenRouterResponse;
   const content = data.choices[0]?.message.content;
-  const hint = content?.trim();
+  const hint = content?.trim().replace(HINT_LABEL_PREFIX, "").replace(HINT_STRAY_COLON, "").trim();
   if (!hint) {
     throw new Error("OpenRouter returned no message content");
   }
