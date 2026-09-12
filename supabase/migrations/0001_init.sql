@@ -49,6 +49,9 @@ create table if not exists "tq-bot-question_sends" (
   hint_failed         boolean not null default false,
   hint_at             timestamptz,
   question_answered   boolean,
+  answer_payload      jsonb,
+  hint_payload        jsonb,
+  is_integration_test boolean not null default false,
   meta                jsonb,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now(),
@@ -58,6 +61,9 @@ create index if not exists "tq-bot-question_sends_chat_time"
   on "tq-bot-question_sends" (chat_id, created_at desc);
 create index if not exists "tq-bot-question_sends_question"
   on "tq-bot-question_sends" (chat_id, question_id);
+create index if not exists "tq-bot-question_sends_integration_test"
+  on "tq-bot-question_sends" (created_at desc)
+  where is_integration_test;
 alter table "tq-bot-question_sends" enable row level security;
 
 -- 3) Lightweight log of failed question loads

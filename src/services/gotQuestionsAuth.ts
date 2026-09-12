@@ -18,6 +18,13 @@
 import type { RedisClientType } from "redis";
 
 const BASE_URL = "https://gotquestions.online";
+const BROWSER_HEADERS = {
+  Accept: "application/json, text/plain, */*",
+  Origin: BASE_URL,
+  Referer: `${BASE_URL}/`,
+  "User-Agent":
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+};
 
 const REDIS_KEY_SESSION = "gotquestions:session_cookie";
 
@@ -33,16 +40,47 @@ let memoryCache: AuthCache | null = null;
  * The value is kept exactly as returned (URL-encoded signature) and later sent
  * verbatim as the `Cookie` header.
  */
-function extractSessionCookie(setCookieHeader: string | null): string {
-  if (!setCookieHeader) {
-    throw new Error("No Set-Cookie header in sign-in response");
+function extractSessionCookie(setCookieHeaders: string[]): string | null {
+  const sessionCookie = setCookieHeaders
+    .flatMap((header) => header.split(/,(?=\s*[^;,=]+=[^;,]+)/))
+    .map((cookie) => cookie.trim())
+    .find((cookie) => /session_token/i.test(cookie));
+  return sessionCookie ? (sessionCookie.split(";")[0] ?? null) : null;
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  if (typeof getSetCookie === "function") {
+    return getSetCookie.call(headers);
   }
-  const matches = setCookieHeader.split(",").map((c) => c.trim());
-  const sessionCookie = matches.find((c) => /session_token/i.test(c));
-  if (!sessionCookie) {
-    throw new Error("No session_token cookie in sign-in response");
+  const combined = headers.get("set-cookie");
+  return combined ? [combined] : [];
+}
+
+function sessionCookieFromToken(token: string): string {
+  return `__Secure-better-auth.session_token=${encodeURIComponent(token)}`;
+}
+
+function parseAuthCache(value: string): AuthCache {
+  const parsed = JSON.parse(value) as Partial<AuthCache>;
+  if (typeof parsed.cookie !== "string" || typeof parsed.expires !== "number") {
+    throw new Error("Invalid cached auth session format");
   }
-  return sessionCookie.split(";")[0] ?? "";
+  return { cookie: parsed.cookie, expires: parsed.expires };
+}
+
+function parseLoginToken(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body) as { token?: unknown };
+    return typeof parsed.token === "string" && parsed.token ? parsed.token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function loginError(status: number, body: string): Error {
+  const details = body.trim().replace(/\s+/g, " ").slice(0, 200);
+  return new Error(`Login failed: HTTP ${status}${details ? ` - ${details}` : ""}`);
 }
 
 /**
@@ -51,7 +89,7 @@ function extractSessionCookie(setCookieHeader: string | null): string {
  */
 async function fetchSession(cookie: string): Promise<{ expires: number }> {
   const sessionResponse = await fetch(`${BASE_URL}/api/auth/get-session`, {
-    headers: { Cookie: cookie },
+    headers: { ...BROWSER_HEADERS, Cookie: cookie },
   });
   if (!sessionResponse.ok) {
     throw new Error(`Session fetch failed: HTTP ${sessionResponse.status}`);
@@ -87,14 +125,28 @@ async function login(): Promise<{ cookie: string; expires: number }> {
 
   const loginResponse = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { ...BROWSER_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
+  const responseBody = await loginResponse.text();
   if (!loginResponse.ok) {
-    throw new Error(`Login failed: HTTP ${loginResponse.status}`);
+    throw loginError(loginResponse.status, responseBody);
   }
 
-  const cookie = extractSessionCookie(loginResponse.headers.get("set-cookie"));
+  const token = parseLoginToken(responseBody);
+  const setCookieCookie = extractSessionCookie(getSetCookieHeaders(loginResponse.headers));
+  const fallbackCookie = token ? sessionCookieFromToken(token) : null;
+  const cookie = setCookieCookie ?? fallbackCookie;
+  if (!cookie) {
+    throw new Error("Login response contained neither a session cookie nor a token");
+  }
+
+  console.log(
+    `[Auth] Login response: status=${loginResponse.status}, set-cookie=${setCookieCookie ? "present" : "absent"}, ` +
+      `json-token=${token ? "present" : "absent"}, ` +
+      `cookie-source=${cookie === setCookieCookie ? "set-cookie" : "json-token"}`,
+  );
+
   const { expires } = await fetchSession(cookie);
 
   return { cookie, expires };
@@ -137,7 +189,19 @@ export async function getSessionCookie(redis?: RedisClientType | null): Promise<
     try {
       const cached = await redis.get(REDIS_KEY_SESSION);
       if (cached) {
-        const parsed = JSON.parse(cached) as AuthCache;
+        let parsed: AuthCache;
+        try {
+          parsed = parseAuthCache(cached);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn(
+            "[Auth] Removing invalid Redis session cache:",
+            message,
+            `value=${JSON.stringify(cached.slice(0, 48))}`,
+          );
+          await redis.del(REDIS_KEY_SESSION);
+          parsed = { cookie: "", expires: 0 };
+        }
         if (parsed.cookie && parsed.expires > nowSec + bufferSeconds) {
           memoryCache = parsed;
           return parsed.cookie;
@@ -146,7 +210,11 @@ export async function getSessionCookie(redis?: RedisClientType | null): Promise<
         try {
           const { expires } = await fetchSession(parsed.cookie);
           const ttl = Math.max(expires - nowSec - bufferSeconds, 60);
-          await redis.setEx(REDIS_KEY_SESSION, ttl, JSON.stringify({ cookie: parsed.cookie, expires }));
+          await redis.setEx(
+            REDIS_KEY_SESSION,
+            ttl,
+            JSON.stringify({ cookie: parsed.cookie, expires }),
+          );
           memoryCache = { cookie: parsed.cookie, expires };
           return parsed.cookie;
         } catch (err) {
@@ -163,7 +231,9 @@ export async function getSessionCookie(redis?: RedisClientType | null): Promise<
   // 3. Full login (no valid session cookie anywhere)
   console.log("[Auth] Performing full login (no valid session)...");
   const { cookie, expires } = await login();
-  console.log(`[Auth] Login successful, session expires: ${new Date(expires * 1000).toISOString()}`);
+  console.log(
+    `[Auth] Login successful, session expires: ${new Date(expires * 1000).toISOString()}`,
+  );
 
   memoryCache = { cookie, expires };
 

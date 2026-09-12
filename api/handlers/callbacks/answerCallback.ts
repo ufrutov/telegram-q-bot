@@ -3,9 +3,9 @@
  */
 
 import type TelegramBot from "node-telegram-bot-api";
-import type { RedisClientType } from "redis";
 
 import { TARGET_DOMAIN, MESSAGES } from "@/bot/constants.js";
+import { getQuestionSendContext } from "@/services/questionSendStore.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import type { InlineButton, InlineKeyboardMarkup, ThreadOpts } from "@/types/telegram.js";
 
@@ -21,16 +21,8 @@ interface AnswerCallbackAction {
   answerKey: string;
 }
 
-interface AnswerData {
-  answer: string;
-  answerPreview?: string[];
-  questionMessageId?: number;
-  packId?: string | number | null;
-}
-
 export default async function answerCallback(
   bot: TelegramBot,
-  redis: RedisClientType | null,
   callbackQuery: TelegramCallbackQuery,
   parsed: AnswerCallbackAction,
   threadId: number | undefined,
@@ -46,7 +38,6 @@ export default async function answerCallback(
   try {
     await bot.answerCallbackQuery(callbackQuery.id);
 
-    const answerDataStr = redis ? await redis.get(answerKey) : null;
     const messageId = callbackQuery.message?.message_id;
     if (messageId === undefined) return;
 
@@ -54,7 +45,8 @@ export default async function answerCallback(
     const logChat = threadId ? `${chatId}_${threadId}` : chatId;
     console.log(`[${logChat}] answer: https://${TARGET_DOMAIN}/question/${questionId}`);
 
-    if (!answerDataStr) {
+    const context = await getQuestionSendContext(chatId, threadId, messageId);
+    if (!context) {
       await bot.sendMessage(chatId, escapeMarkdownV2(MESSAGES.ANSWER_EXPIRED), {
         ...threadOpts,
         parse_mode: "MarkdownV2",
@@ -72,8 +64,7 @@ export default async function answerCallback(
       return;
     }
 
-    const answerData = JSON.parse(answerDataStr) as AnswerData;
-    const { answer, answerPreview, questionMessageId, packId } = answerData;
+    const { answer, answerPreview, packId, questionMessageId } = context.answerPayload;
     const messageToReply = questionMessageId ?? messageId;
 
     // Shared action row: 📦 Играть весь пакет when the answer belongs to a
@@ -170,10 +161,6 @@ export default async function answerCallback(
           deleteError,
         );
       }
-    }
-
-    if (redis) {
-      await redis.del(answerKey);
     }
   } catch (error) {
     console.error("Error handling callback query (answer):", error);

@@ -16,7 +16,28 @@
 import type { Complexity } from "@/types/question.js";
 
 import { TABLES, getSupabaseClient } from "./supabase.js";
-import { getOrCreateChat } from "./chatStore.js";
+import { getChat, getOrCreateChat } from "./chatStore.js";
+
+export interface AnswerPayload {
+  answer: string;
+  answerPreview: string[];
+  packId: string | number | null;
+  /** Set only when buttons are carried by a separate message after media. */
+  questionMessageId?: number;
+}
+
+export interface HintPayload {
+  question: string;
+  answer: string;
+  description?: string;
+  questionMessageId?: number;
+  questionPreview?: string[];
+}
+
+export interface QuestionSendContext {
+  answerPayload: AnswerPayload;
+  hintPayload: HintPayload;
+}
 
 interface RecordQuestionSentArgs {
   chatId: number | string;
@@ -25,6 +46,9 @@ interface RecordQuestionSentArgs {
   telegramMessageId: number;
   questionId: string | number | null;
   complexity: Complexity;
+  answerPayload: AnswerPayload;
+  hintPayload: HintPayload;
+  isIntegrationTest?: boolean;
 }
 
 /**
@@ -33,7 +57,17 @@ interface RecordQuestionSentArgs {
  * call is a no-op so the bot keeps working.
  */
 export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<void> {
-  const { chatId, threadId, telegramMessageId, questionId, complexity, title } = args;
+  const {
+    chatId,
+    threadId,
+    telegramMessageId,
+    questionId,
+    complexity,
+    answerPayload,
+    hintPayload,
+    isIntegrationTest = false,
+    title,
+  } = args;
 
   const supabase = getSupabaseClient();
   if (!supabase) {
@@ -51,6 +85,9 @@ export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<
       telegram_message_id: telegramMessageId,
       question_id: questionId != null ? String(questionId) : null,
       complexity,
+      answer_payload: answerPayload,
+      hint_payload: hintPayload,
+      is_integration_test: isIntegrationTest,
     };
     const { error } = await supabase
       .from(TABLES.questionSends)
@@ -63,6 +100,73 @@ export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<
     const message = err instanceof Error ? err.message : String(err);
     console.warn("[supabase] recordQuestionSent unexpected error:", message);
   }
+}
+
+/**
+ * Reads the durable callback context for a question message. The Telegram
+ * message ID identifies a single send even when the same source question has
+ * been posted to a chat more than once.
+ */
+export async function getQuestionSendContext(
+  chatId: number | string,
+  threadId: number | undefined,
+  telegramMessageId: number,
+): Promise<QuestionSendContext | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+
+  const chat = await getChat(chatId, threadId);
+  if (!chat) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from(TABLES.questionSends)
+      .select("answer_payload, hint_payload")
+      .eq("chat_id", chat.id)
+      .eq("telegram_message_id", telegramMessageId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[supabase] getQuestionSendContext select failed:", error.message);
+      return null;
+    }
+
+    const answerPayload = data?.answer_payload as AnswerPayload | null | undefined;
+    const hintPayload = data?.hint_payload as HintPayload | null | undefined;
+    if (!isAnswerPayload(answerPayload) || !isHintPayload(hintPayload)) {
+      return null;
+    }
+    return { answerPayload, hintPayload };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[supabase] getQuestionSendContext unexpected error:", message);
+    return null;
+  }
+}
+
+function isAnswerPayload(value: unknown): value is AnswerPayload {
+  if (!value || typeof value !== "object") return false;
+  const payload = value as Record<string, unknown>;
+  return (
+    typeof payload.answer === "string" &&
+    Array.isArray(payload.answerPreview) &&
+    payload.answerPreview.every((url) => typeof url === "string") &&
+    (payload.questionMessageId === undefined || typeof payload.questionMessageId === "number")
+  );
+}
+
+function isHintPayload(value: unknown): value is HintPayload {
+  if (!value || typeof value !== "object") return false;
+  const payload = value as Record<string, unknown>;
+  return (
+    typeof payload.question === "string" &&
+    typeof payload.answer === "string" &&
+    (payload.description === undefined || typeof payload.description === "string") &&
+    (payload.questionMessageId === undefined || typeof payload.questionMessageId === "number") &&
+    (payload.questionPreview === undefined ||
+      (Array.isArray(payload.questionPreview) &&
+        payload.questionPreview.every((url) => typeof url === "string")))
+  );
 }
 
 interface RecordHintResultArgs {
