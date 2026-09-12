@@ -8,23 +8,22 @@ import * as gotQuestionsAuth from "@/services/gotQuestionsAuth.js";
 import type { Complexity, Pack, PackQuestionRef, Question } from "@/types/question.js";
 
 /**
- * Max pack id used for random pack sampling. Current newest pack id is ~7030;
- * ids above the real max return 404 and are simply resampled.
+ * Upper TrueDL bound (pack difficulty index) passed to the /search page as
+ * `toTrueDL`. The site exposes no lower-bound filter, so every complexity maps
+ * to "not harder than X". Legacy behavior: `random` spans 0..4.5.
  */
-const PACK_ID_MAX = 7400;
+const TO_TRUE_DL: Record<Complexity, number> = {
+  random: 4.5,
+  easy: 3.5,
+  medium: 6.5,
+  hard: 10,
+};
 
 /**
- * TrueDL complexity ranges (pack difficulty index).
- * The site's /search ignores difficulty filters server-side and caps its
- * results at 10 000 questions, so the range is enforced here, on the pack's
- * TrueDL (legacyTournaments[].truedl).
+ * Max search page number used for random selection. Pages past the real total
+ * simply return no questions and are resampled.
  */
-const COMPLEXITY_RANGES: Record<Complexity, { min: number; max: number }> = {
-  random: { min: 0.1, max: 4.5 },
-  easy: { min: 0.1, max: 3.5 },
-  medium: { min: 3.5, max: 6.5 },
-  hard: { min: 6.5, max: 10 },
-};
+const SEARCH_PAGES_MAX = 500;
 
 interface RawQuestion {
   id: string | number;
@@ -45,6 +44,8 @@ interface RawQuestion {
 interface RawPack {
   id: string | number;
   pubDate?: string;
+  startDate?: string;
+  endDate?: string;
   title: string;
   trueDl?: Array<string | number>;
   truedls?: Array<string | number>;
@@ -59,11 +60,12 @@ interface RawPack {
  * `/api/question`, `/api/pack`) is gone — those paths now serve HTML pages with
  * the data embedded in the page's RSC payload (`self.__next_f.push([1, ...])`).
  *
- * Random questions are selected by sampling a random pack id in `1..PACK_ID_MAX`
- * and loading `/pack/<id>` (which embeds every question of the pack plus the
- * pack TrueDL in `legacyTournaments[].truedl`). This reaches the whole DB in a
- * single request per question, unlike `/search`, which is capped at 10 000
- * results and ignores the difficulty filters.
+ * Random questions are selected through the public `/search` page, passing the
+ * same query params the site's search UI uses (`toTrueDL` maps the requested
+ * complexity). A random page in `1..SEARCH_PAGES_MAX` is fetched, a question is
+ * picked at random from its `limit=20` results, and pack metadata is resolved
+ * from the canonical `/pack/<id>` page so TrueDL (Сложность) renders even
+ * though the search embed only carries a flight reference to it.
  */
 export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   readonly baseUrl: string;
@@ -196,6 +198,72 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
+   * Find the index of the matching closing bracket for `[` at `start`.
+   * Returns -1 if unbalanced.
+   */
+  private _matchArray(text: string, start: number): number {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === "\\") {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "[") {
+        depth++;
+      } else if (ch === "]") {
+        depth--;
+        if (depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Find and parse the first `"<key>":` JSON value (object or array) in `text`
+   * matching an optional predicate.
+   */
+  private _findJsonValue<T>(
+    text: string,
+    key: string,
+    predicate?: (value: unknown) => boolean,
+  ): T | null {
+    const searchStr = `"${key}":`;
+    let idx = 0;
+    while (true) {
+      idx = text.indexOf(searchStr, idx);
+      if (idx === -1) return null;
+      const valueStart = idx + searchStr.length;
+      const ch = text[valueStart];
+      let end = -1;
+      if (ch === "{") {
+        end = this._matchBrace(text, valueStart);
+      } else if (ch === "[") {
+        end = this._matchArray(text, valueStart);
+      }
+      if (end !== -1) {
+        try {
+          const parsed = JSON.parse(text.slice(valueStart, end + 1)) as T;
+          if (!predicate || predicate(parsed)) return parsed;
+        } catch {
+          /* keep scanning */
+        }
+      }
+      idx += searchStr.length;
+    }
+  }
+
+  /**
    * Find and parse the first `"<key>":{...}` JSON object in `text`
    * matching an optional predicate.
    */
@@ -271,6 +339,78 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   // ---------------------------------------------------------------------------
+  // /search page loading — random questions are selected through the site's
+  // public search page, mirroring the query params of its search UI.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build the /search URL query params for the configured complexity.
+   */
+  private _searchParams(page: number): string {
+    const params = new URLSearchParams({
+      // Question type — fixed to a plain question search.
+      type: "questions",
+      // Only team (non-solo) questions.
+      solo: "false",
+      // Upper TrueDL bound from the requested complexity (0..toTrueDL).
+      toTrueDL: String(TO_TRUE_DL[this.complexity]),
+      // Exclude questions with unknown difficulty level
+      // (not strictly honored server-side — packs without TrueDL still appear).
+      uDL: "false",
+      // Search text within answers.
+      ansSearch: "true",
+      // Search text within question body.
+      textSearch: "true",
+      // Search text within comments.
+      commSearch: "true",
+      // Do not search within sources.
+      sourceSearch: "false",
+      // Combine search fields with AND (false) instead of OR (true).
+      or: "false",
+      // Exclude withdrawn questions.
+      withdrawn: "false",
+      // Exclude questions with an unknown right-answer percentage.
+      uD: "false",
+      // Sort the results by difficulty level (ascending).
+      sSort: "dl",
+      // Right-answer percentage floor (only questions with more than 20% correct).
+      fromD: "20",
+      // Questions per page; the loader picks one at random from the results.
+      limit: "20",
+      // Page number — drawn at random from 1..SEARCH_PAGES_MAX.
+      page: String(page),
+    });
+    return params.toString();
+  }
+
+  /**
+   * Fetch one page of questions from the /search page RSC payload.
+   * Returns up to `limit` questions for the configured complexity.
+   */
+  private async _fetchSearchQuestions(
+    page: number,
+    redis?: RedisClientType,
+  ): Promise<RawQuestion[]> {
+    const url = `${this.baseUrl}/search?${this._searchParams(page)}`;
+    const response = await this._fetchWithAuth(url, {}, redis);
+    const html = await response.text();
+    const rsc = this._extractRscPayload(html);
+    return this._parseSearchQuestions(rsc);
+  }
+
+  /**
+   * Extract question objects from a /search page RSC payload.
+   * Results are embedded as `initialData.questions[]`.
+   */
+  private _parseSearchQuestions(rsc: string): RawQuestion[] {
+    const questions = this._findJsonValue<RawQuestion[]>(rsc, "questions", Array.isArray);
+    if (!questions) {
+      return [];
+    }
+    return questions.filter((q) => q && typeof q === "object" && "text" in q);
+  }
+
+  // ---------------------------------------------------------------------------
   // Data normalization
   // ---------------------------------------------------------------------------
 
@@ -293,26 +433,6 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     const s = String(value).trim();
     if (!s) return undefined;
     return s.startsWith("$D") ? s.slice(2) : s;
-  }
-
-  /**
-   * Average TrueDL of a pack, or null if unknown.
-   */
-  private _trueDlOf(packData: Pack | null): number | null {
-    if (!packData?.trueDl || packData.trueDl.length === 0) return null;
-    return packData.trueDl.reduce((a, b) => a + b, 0) / packData.trueDl.length;
-  }
-
-  /**
-   * Whether a pack TrueDL matches the requested complexity range.
-   * `random` accepts anything; an unknown TrueDL is rejected for the other
-   * ranges so a question isn't labeled by a difficulty we can't verify.
-   */
-  private _matchesComplexity(trueDl: number | null): boolean {
-    if (this.complexity === "random") return true;
-    if (trueDl == null) return false;
-    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
-    return trueDl >= range.min && trueDl <= range.max;
   }
 
   /**
@@ -347,11 +467,32 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
     return {
       id: packRaw.id,
       title: packRaw.title || "",
-      pubDate: this._cleanRscDate(packRaw.pubDate),
+      pubDate: this._cleanRscDate(packRaw.pubDate ?? packRaw.startDate ?? packRaw.endDate),
       trueDl,
       total: questions.length,
       questions: questions.slice(0, PACK_MAX_QUESTIONS_TO_SHOW),
     };
+  }
+
+  /**
+   * Resolve the pack data for a raw question.
+   *
+   * Search-page embeds carry `tour.pack` whose `legacyTournaments` (TrueDL) is
+   * only a flight reference, so prefer the canonical `/pack/<id>` page — it
+   * inlines `legacyTournaments[].truedl`. The pack page fetch is cached per
+   * invocation; if it fails, the embedded pack (title/date) is kept.
+   */
+  private async _resolvePackData(raw: RawQuestion, redis?: RedisClientType): Promise<Pack | null> {
+    const embedded = raw.tour?.pack ? this._packFromRaw(raw.tour.pack) : null;
+    if (raw.packId == null) {
+      return embedded;
+    }
+    const needsFullPack = !embedded?.trueDl || embedded.trueDl.length === 0;
+    if (!needsFullPack) {
+      return embedded;
+    }
+    const fullPack = await this.loadPackData(raw.packId, redis);
+    return fullPack ?? embedded;
   }
 
   // ---------------------------------------------------------------------------
@@ -517,7 +658,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
    *
    * If `questionId` is provided, loads that specific question from the
    * `/question/<id>` page RSC payload. Otherwise loads a random question
-   * via the /search Server Action.
+   * via the /search page (same query params as the site's search UI).
    *
    * Retry Logic:
    * - Client errors (4xx, except 401): No retry, fails immediately
@@ -542,9 +683,7 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
           throw new Error("Question not found in page");
         }
         const normalized = this._normalizeQuestion(raw);
-        const packData = normalized.packId
-          ? await this.loadPackData(normalized.packId, redis)
-          : null;
+        const packData = await this._resolvePackData(normalized, redis);
         const questionLink = `${this.baseUrl}/question/${normalized.id}`;
 
         return this.parseQuestionData(normalized, questionLink, packData);
@@ -554,81 +693,44 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       }
     }
 
-    // A random question is selected by sampling a random pack id and loading
-    // `/pack/<id>`, which embeds every question plus the pack TrueDL. This
-    // covers the whole DB in one request per question (unlike /search, which
-    // is capped at 10 000 results and ignores difficulty filters).
+    // A random question is selected through the /search page, using the same
+    // query params as the site's search UI (`toTrueDL` maps the complexity).
+    // A random page in 1..SEARCH_PAGES_MAX is fetched and a question is drawn
+    // at random from its results.
     let lastError: Error | null = null;
-    let fallback: { q: RawQuestion; pack: Pack | null } | null = null;
-    let closest: { q: RawQuestion; pack: Pack | null; distance: number } | null = null;
-    const range = COMPLEXITY_RANGES[this.complexity] ?? COMPLEXITY_RANGES.medium;
-    // `random` accepts the first valid pack; difficulty ranges may need more
-    // samples, so budget accordingly (hard is the rarest range).
-    const maxSamples = this.complexity === "random" ? 1 : this.complexity === "hard" ? 10 : 15;
 
-    for (let attempt = 1; attempt <= maxSamples; attempt++) {
-      // Sample a random pack id (gaps above the real max return 404 → resample)
-      const packId = Math.floor(Math.random() * PACK_ID_MAX) + 1;
-      let result: { pack: Pack | null; questions: RawQuestion[] };
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      const randomPage = Math.floor(Math.random() * SEARCH_PAGES_MAX) + 1;
       try {
-        result = await this._fetchPack(packId, redis);
+        const questions = await this._fetchSearchQuestions(randomPage, redis);
+        if (questions.length === 0) {
+          throw new Error("No questions found in search page");
+        }
+        const questionData = questions[Math.floor(Math.random() * questions.length)];
+        if (!questionData) {
+          throw new Error("No questions found in search page");
+        }
+        const normalized = this._normalizeQuestion(questionData);
+        const packData = await this._resolvePackData(normalized, redis);
+        const questionLink = `${this.baseUrl}/question/${normalized.id}`;
+
+        return this.parseQuestionData(normalized, questionLink, packData);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        if (this._isClientError(lastError)) {
-          console.error(`Failed to load question: ${lastError.message}`);
-          throw new Error(`Failed to load question: ${lastError.message}`);
+        if (this._isClientError(lastError) || attempt >= this.maxRetries) {
+          console.error(
+            `Failed to load question after ${attempt} attempt(s): ${lastError.message}`,
+          );
+          throw new Error(
+            `Failed to load question after ${attempt} attempt(s): ${lastError.message}`,
+          );
         }
         const delay = this._getRetryDelay(attempt);
         console.warn(`Attempt ${attempt} failed: ${lastError.message}. Retrying in ${delay}ms...`);
         await new Promise((r) => setTimeout(r, delay));
-        continue;
       }
-
-      const { pack } = result;
-      if (!pack || result.questions.length === 0) {
-        continue; // nonexistent pack id or empty pack
-      }
-
-      const questionData = result.questions[Math.floor(Math.random() * result.questions.length)];
-      if (!questionData) {
-        continue;
-      }
-      const normalized: RawQuestion = { ...questionData, packId: pack.id ?? packId };
-
-      if (!fallback) {
-        fallback = { q: normalized, pack };
-      }
-
-      const trueDl = this._trueDlOf(pack);
-      if (this._matchesComplexity(trueDl)) {
-        const questionLink = `${this.baseUrl}/question/${normalized.id}`;
-
-        return this.parseQuestionData(normalized, questionLink, pack);
-      }
-
-      // Track the candidate closest to the requested range so the fail-open
-      // fallback at least returns the "least wrong" question.
-      if (trueDl != null) {
-        const distance =
-          trueDl < range.min ? range.min - trueDl : trueDl > range.max ? trueDl - range.max : 0;
-        if (!closest || distance < closest.distance) {
-          closest = { q: normalized, pack, distance };
-        }
-      }
-
-      // Pace requests to stay under the site's rate limits
-      await new Promise((r) => setTimeout(r, 150));
     }
 
-    // Budget exhausted without finding an in-range question — fail open with
-    // the closest match (or the first candidate) instead of failing the request.
-    const best = closest ?? fallback;
-    if (best) {
-      const questionLink = `${this.baseUrl}/question/${best.q.id}`;
-      return this.parseQuestionData(best.q, questionLink, best.pack);
-    }
-
-    // Should be unreachable — the loop usually samples a valid pack quickly
     throw lastError ?? new Error("Failed to load question: unknown error");
   }
 }
