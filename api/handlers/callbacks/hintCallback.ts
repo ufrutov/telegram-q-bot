@@ -52,9 +52,15 @@ export default async function hintCallback(
     const buttonMessageId = callbackQuery.message?.message_id;
     if (buttonMessageId === undefined) return;
 
-    const context = await getQuestionSendContext(chatId, threadId, buttonMessageId);
-    if (!context) {
+    const result = await getQuestionSendContext(chatId, threadId, buttonMessageId);
+    if (result.status === "missing") {
       await bot.sendMessage(chatId, MESSAGES.HINT_EXPIRED, threadOpts);
+      return;
+    }
+    if (result.status === "error") {
+      // Buttons stay on the message so the user can tap again. A persistent
+      // transient failure deserves a more accurate message than "expired".
+      await bot.sendMessage(chatId, MESSAGES.HINT_LOAD_FAILED, threadOpts);
       return;
     }
 
@@ -64,7 +70,7 @@ export default async function hintCallback(
       description,
       questionMessageId,
       questionPreview = [],
-    } = context.hintPayload;
+    } = result.context.hintPayload;
 
     // Remove hint button from keyboard (keep answer button)
     try {

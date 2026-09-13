@@ -45,8 +45,8 @@ export default async function answerCallback(
     const logChat = threadId ? `${chatId}_${threadId}` : chatId;
     console.log(`[${logChat}] answer: https://${TARGET_DOMAIN}/question/${questionId}`);
 
-    const context = await getQuestionSendContext(chatId, threadId, messageId);
-    if (!context) {
+    const result = await getQuestionSendContext(chatId, threadId, messageId);
+    if (result.status === "missing") {
       await bot.sendMessage(chatId, escapeMarkdownV2(MESSAGES.ANSWER_EXPIRED), {
         ...threadOpts,
         parse_mode: "MarkdownV2",
@@ -63,8 +63,15 @@ export default async function answerCallback(
       });
       return;
     }
+    if (result.status === "error") {
+      await bot.sendMessage(chatId, escapeMarkdownV2(MESSAGES.ANSWER_LOAD_FAILED), {
+        ...threadOpts,
+        parse_mode: "MarkdownV2",
+      });
+      return;
+    }
 
-    const { answer, answerPreview, packId, questionMessageId } = context.answerPayload;
+    const { answer, answerPreview, packId, questionMessageId } = result.context.answerPayload;
     const messageToReply = questionMessageId ?? messageId;
 
     // Shared action row: 📦 Играть весь пакет when the answer belongs to a

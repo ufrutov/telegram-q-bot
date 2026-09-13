@@ -15,8 +15,8 @@
 
 import type { Complexity } from "@/types/question.js";
 
-import { TABLES, getSupabaseClient } from "./supabase.js";
-import { getChat, getOrCreateChat } from "./chatStore.js";
+import { SupabaseMissingError, TABLES, getSupabaseClient, withRetry } from "./supabase.js";
+import { getOrCreateChat } from "./chatStore.js";
 
 export interface AnswerPayload {
   answer: string;
@@ -38,6 +38,22 @@ export interface QuestionSendContext {
   answerPayload: AnswerPayload;
   hintPayload: HintPayload;
 }
+
+/**
+ * Outcome of looking up a question's callback context.
+ *
+ * - `ok` — the row exists and both payloads round-tripped.
+ * - `missing` — neither the chat nor the question-send row exists, or
+ *   the payloads are malformed. Treat as "hint/answer expired" UX.
+ * - `error` — Supabase returned a persistent (post-retry) failure: the
+ *   row may or may not exist but we couldn't reach it. Treat as a
+ *   transient load failure; do NOT remove buttons — the user should
+ *   be able to tap again.
+ */
+export type GetQuestionSendContextResult =
+  | { status: "ok"; context: QuestionSendContext }
+  | { status: "missing" }
+  | { status: "error"; message: string };
 
 interface RecordQuestionSentArgs {
   chatId: number | string;
@@ -106,41 +122,67 @@ export async function recordQuestionSent(args: RecordQuestionSentArgs): Promise<
  * Reads the durable callback context for a question message. The Telegram
  * message ID identifies a single send even when the same source question has
  * been posted to a chat more than once.
+ *
+ * Transient Supabase failures (504 Gateway Timeout, network blips) are
+ * retried via `withRetry`. The result discriminates between a row that
+ * genuinely does not exist (`missing`) and a query that could not be
+ * completed (`error`) so the handler can show the right message instead
+ * of conflating the two.
  */
 export async function getQuestionSendContext(
   chatId: number | string,
   threadId: number | undefined,
   telegramMessageId: number,
-): Promise<QuestionSendContext | null> {
+): Promise<GetQuestionSendContextResult> {
   const supabase = getSupabaseClient();
-  if (!supabase) return null;
+  if (!supabase) {
+    return { status: "error", message: "DB is not configured" };
+  }
 
-  const chat = await getChat(chatId, threadId);
-  if (!chat) return null;
+  const numericChatId = typeof chatId === "string" ? Number(chatId) : chatId;
+  if (!Number.isFinite(numericChatId)) {
+    return { status: "missing" };
+  }
 
   try {
-    const { data, error } = await supabase
-      .from(TABLES.questionSends)
-      .select("answer_payload, hint_payload")
-      .eq("chat_id", chat.id)
-      .eq("telegram_message_id", telegramMessageId)
-      .maybeSingle();
+    const context = await withRetry(async () => {
+      let chatQuery = supabase.from(TABLES.chats).select("id").eq("chat_id", numericChatId);
+      // PostgREST operators differ by nullness: `is` accepts only null/true/false,
+      // so real thread ids must filter with plain `eq` (is.7 is a parse error).
+      chatQuery =
+        threadId == null ? chatQuery.is("thread_id", null) : chatQuery.eq("thread_id", threadId);
 
-    if (error) {
-      console.warn("[supabase] getQuestionSendContext select failed:", error.message);
-      return null;
-    }
+      const { data: chatData, error: chatError } = await chatQuery.maybeSingle();
+      if (chatError) throw chatError;
+      if (!chatData) throw new SupabaseMissingError("chat");
 
-    const answerPayload = data?.answer_payload as AnswerPayload | null | undefined;
-    const hintPayload = data?.hint_payload as HintPayload | null | undefined;
-    if (!isAnswerPayload(answerPayload) || !isHintPayload(hintPayload)) {
-      return null;
-    }
-    return { answerPayload, hintPayload };
+      const { data, error } = await supabase
+        .from(TABLES.questionSends)
+        .select("answer_payload, hint_payload")
+        .eq("chat_id", chatData.id)
+        .eq("telegram_message_id", telegramMessageId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) throw new SupabaseMissingError("question_send");
+
+      const answerPayload = data.answer_payload as AnswerPayload | null;
+      const hintPayload = data.hint_payload as HintPayload | null;
+      if (!isAnswerPayload(answerPayload) || !isHintPayload(hintPayload)) {
+        throw new SupabaseMissingError("payload");
+      }
+
+      return { answerPayload, hintPayload };
+    });
+
+    return { status: "ok", context };
   } catch (err) {
+    if (err instanceof SupabaseMissingError) {
+      return { status: "missing" };
+    }
     const message = err instanceof Error ? err.message : String(err);
-    console.warn("[supabase] getQuestionSendContext unexpected error:", message);
-    return null;
+    console.warn("[supabase] getQuestionSendContext failed:", message);
+    return { status: "error", message };
   }
 }
 
