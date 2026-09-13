@@ -50,35 +50,35 @@ OUTPUT FORMAT:
 `.trim();
 
 interface GeminiTextPart {
-	text: string;
+  text: string;
 }
 
 interface GeminiInlineDataPart {
-	inlineData: {
-		mimeType: string;
-		data: string;
-	};
+  inlineData: {
+    mimeType: string;
+    data: string;
+  };
 }
 
 type GeminiPart = GeminiTextPart | GeminiInlineDataPart;
 
 interface GeminiContent {
-	role: "user";
-	parts: GeminiPart[];
+  role: "user";
+  parts: GeminiPart[];
 }
 
 interface GeminiCandidate {
-	content?: {
-		parts?: GeminiTextPart[];
-	};
-	finishReason?: string;
+  content?: {
+    parts?: GeminiTextPart[];
+  };
+  finishReason?: string;
 }
 
 interface GeminiResponse {
-	candidates?: GeminiCandidate[];
-	promptFeedback?: {
-		blockReason?: string;
-	};
+  candidates?: GeminiCandidate[];
+  promptFeedback?: {
+    blockReason?: string;
+  };
 }
 
 /** Cap on generated hint length. Hints are 2-4 sentences, so this is generous
@@ -94,11 +94,11 @@ const IMAGE_FETCH_TIMEOUT_MS = 10_000;
  * gotquestions.online / questions.chgk.info preview images.
  */
 function guessMimeType(url: string): string {
-	const lower = url.toLowerCase();
-	if (lower.endsWith(".png")) return "image/png";
-	if (lower.endsWith(".webp")) return "image/webp";
-	if (lower.endsWith(".gif")) return "image/gif";
-	return "image/jpeg";
+  const lower = url.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  return "image/jpeg";
 }
 
 /**
@@ -111,113 +111,113 @@ function guessMimeType(url: string): string {
  * (text-only) rather than fail the whole request.
  */
 async function fetchImageAsInlineData(url: string): Promise<GeminiInlineDataPart | null> {
-	try {
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
-		try {
-			const response = await fetch(url, { signal: controller.signal });
-			if (!response.ok) {
-				console.warn(`[Gemini] Failed to fetch image ${url}: HTTP ${response.status}`);
-				return null;
-			}
-			const buffer = await response.arrayBuffer();
-			const data = Buffer.from(buffer).toString("base64");
-			const mimeType = response.headers.get("content-type") || guessMimeType(url);
-			return { inlineData: { mimeType, data } };
-		} finally {
-			clearTimeout(timeout);
-		}
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		console.warn(`[Gemini] Error fetching image ${url}: ${message}`);
-		return null;
-	}
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        console.warn(`[Gemini] Failed to fetch image ${url}: HTTP ${response.status}`);
+        return null;
+      }
+      const buffer = await response.arrayBuffer();
+      const data = Buffer.from(buffer).toString("base64");
+      const mimeType = response.headers.get("content-type") || guessMimeType(url);
+      return { inlineData: { mimeType, data } };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[Gemini] Error fetching image ${url}: ${message}`);
+    return null;
+  }
 }
 
 export async function generateHint(
-	question: string,
-	correctAnswer: string,
-	description: string | undefined,
-	questionPreview: string[] = [],
+  question: string,
+  correctAnswer: string,
+  description: string | undefined,
+  questionPreview: string[] = [],
 ): Promise<string> {
-	if (!GEMINI_API_KEY) {
-		throw new Error("GEMINI_API_KEY is not configured");
-	}
+  if (!GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
 
-	const parts: GeminiPart[] = [];
+  const parts: GeminiPart[] = [];
 
-	if (questionPreview.length > 0) {
-		parts.push({ text: "Question image(s):" });
-		const inlineImages = await Promise.all(questionPreview.map(fetchImageAsInlineData));
-		for (const image of inlineImages) {
-			if (image) parts.push(image);
-		}
-	}
+  if (questionPreview.length > 0) {
+    parts.push({ text: "Question image(s):" });
+    const inlineImages = await Promise.all(questionPreview.map(fetchImageAsInlineData));
+    for (const image of inlineImages) {
+      if (image) parts.push(image);
+    }
+  }
 
-	parts.push({ text: `Question: ${question}\nCorrect Answer: ${correctAnswer}` });
+  parts.push({ text: `Question: ${question}\nCorrect Answer: ${correctAnswer}` });
 
-	if (description) {
-		parts.push({ text: `Description: ${description}` });
-	}
+  if (description) {
+    parts.push({ text: `Description: ${description}` });
+  }
 
-	parts.push({
-		text: "Write a helpful hint in Russian language. Important: Do NOT include the answer in your hint — give only a logical clue.",
-	});
+  parts.push({
+    text: "Write a helpful hint in Russian language. Important: Do NOT include the answer in your hint — give only a logical clue.",
+  });
 
-	const contents: GeminiContent[] = [{ role: "user", parts }];
+  const contents: GeminiContent[] = [{ role: "user", parts }];
 
-	const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent`;
-	const response = await fetch(url, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-goog-api-key": GEMINI_API_KEY,
-		},
-		body: JSON.stringify({
-			system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-			contents,
-			generationConfig: {
-				maxOutputTokens: HINT_MAX_OUTPUT_TOKENS,
-				temperature: 0.7,
-			},
-		}),
-	});
+  const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": GEMINI_API_KEY,
+    },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+      contents,
+      generationConfig: {
+        maxOutputTokens: HINT_MAX_OUTPUT_TOKENS,
+        temperature: 0.7,
+      },
+    }),
+  });
 
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-	}
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+  }
 
-	const data = (await response.json()) as GeminiResponse;
+  const data = (await response.json()) as GeminiResponse;
 
-	if (data.promptFeedback?.blockReason) {
-		throw new Error(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
-	}
+  if (data.promptFeedback?.blockReason) {
+    throw new Error(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
+  }
 
-	const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-	if (!text) {
-		throw new Error("Gemini returned no message content");
-	}
-	return text;
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Gemini returned no message content");
+  }
+  return text;
 }
 
 export function formatErrorMessage(error: unknown): string {
-	const message = error instanceof Error ? error.message : String(error);
-	if (
-		message.includes("GEMINI_API_KEY") ||
-		message.includes("403") ||
-		message.includes("API key")
-	) {
-		return "⚠️ Ошибка API ключа. Проверьте настройки.";
-	}
-	if (message.includes("429") || message.includes("RESOURCE_EXHAUSTED")) {
-		return "⏳ Лимит запросов исчерпан. Попробуйте позже.";
-	}
-	if (message.includes("503") || message.includes("UNAVAILABLE")) {
-		return "⚠️ Сервис Gemini временно недоступен. Попробуйте позже.";
-	}
-	if (message.includes("blocked") || message.includes("SAFETY")) {
-		return "⚠️ Подсказка заблокирована фильтром безопасности.";
-	}
-	return "⚠️ Не удалось создать подсказку. Думаем сами, знатоки.";
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    message.includes("GEMINI_API_KEY") ||
+    message.includes("403") ||
+    message.includes("API key")
+  ) {
+    return "⚠️ Ошибка API ключа. Проверьте настройки.";
+  }
+  if (message.includes("429") || message.includes("RESOURCE_EXHAUSTED")) {
+    return "⏳ Лимит запросов исчерпан. Попробуйте позже.";
+  }
+  if (message.includes("503") || message.includes("UNAVAILABLE")) {
+    return "⚠️ Сервис Gemini временно недоступен. Попробуйте позже.";
+  }
+  if (message.includes("blocked") || message.includes("SAFETY")) {
+    return "⚠️ Подсказка заблокирована фильтром безопасности.";
+  }
+  return "⚠️ Не удалось создать подсказку. Думаем сами, знатоки.";
 }

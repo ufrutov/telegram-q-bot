@@ -43,15 +43,6 @@ export type CallbackAction =
   | { hintKey: string };
 
 /**
- * One entry parsed from `CRON_TARGET_CHATS` env var.
- * Format: `chatId` or `chatId_threadId` (e.g. `123456` or `123456_42`).
- */
-export interface CronChatEntry {
-  chatId: string;
-  threadId: number | undefined;
-}
-
-/**
  * Minimal inline-keyboard button shape used by the bot.
  */
 export interface InlineButton {
