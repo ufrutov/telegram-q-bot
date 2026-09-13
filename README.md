@@ -113,7 +113,9 @@ Add variables in your Vercel project (**Settings → Environment Variables**):
 | `SUPABASE_URL`              | For bot state | Supabase project URL for durable answers, hints, cron, and stats |
 | `SUPABASE_SERVICE_ROLE_KEY` | For bot state | Server-side key (never expose to clients)                        |
 | `REDIS_URL`                 | Optional      | Redis connection for gotquestions.online session-cookie caching  |
-| `OPENROUTER_API_KEY`        | For hints     | OpenRouter API key for AI-generated hints                        |
+| `OPENROUTER_API_KEY`        | For hints     | OpenRouter API key for AI-generated hints (manual fallback)      |
+| `GEMINI_API_KEY`            | For hints     | Gemini API key for AI-generated hints (used when set)            |
+| `GEMINI_MODEL`              | Optional      | Gemini model override (default: `gemini-2.5-flash`)              |
 | `CRON_SECRET`               | No            | Optional secret for manual cron invocations                      |
 
 > `CRON_TARGET_CHATS` was removed. Per-chat schedules are managed via the

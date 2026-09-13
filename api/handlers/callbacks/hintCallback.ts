@@ -4,7 +4,7 @@
 
 import type TelegramBot from "node-telegram-bot-api";
 
-import { generateHint, formatErrorMessage } from "@/services/openrouter.js";
+import { generateHint, formatErrorMessage } from "@/services/gemini.js";
 import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import { resolveChatTitle } from "@/utils/telegramChat.js";
