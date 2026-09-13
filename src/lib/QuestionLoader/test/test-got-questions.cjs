@@ -3,7 +3,7 @@
  * after `npm run build` at the project root.
  *
  * Requires: dist/lib/QuestionLoader/QuestionLoader.js and
- *           dist/services/openrouter.js must exist.
+ *           dist/services/gemini.js must exist.
  */
 
 const path = require("path");
@@ -15,7 +15,7 @@ async function main() {
   const { default: QuestionLoader } =
     await import("../../../../dist/src/lib/QuestionLoader/QuestionLoader.js");
   const { generateHint, formatErrorMessage } =
-    await import("../../../../dist/src/services/openrouter.js");
+    await import("../../../../dist/src/services/gemini.js");
 
   async function testComplexity(complexity) {
     console.log(`\n${"=".repeat(80)}`);

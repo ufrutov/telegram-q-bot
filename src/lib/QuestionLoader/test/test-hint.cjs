@@ -3,7 +3,7 @@
  * `npm run build` at the project root.
  *
  * Requires: dist/src/lib/QuestionLoader/QuestionLoader.js and
- *           dist/src/services/openrouter.js must exist.
+ *           dist/src/services/gemini.js must exist.
  */
 
 const path = require("path");
@@ -14,7 +14,7 @@ require("dotenv").config({
 async function main() {
   const { default: QuestionLoader } =
     await import("../../../../dist/src/lib/QuestionLoader/QuestionLoader.js");
-  const { generateHint } = await import("../../../../dist/src/services/openrouter.js");
+  const { generateHint } = await import("../../../../dist/src/services/gemini.js");
 
   console.log("Loading a random question from gotquestions.online…");
   const loader = QuestionLoader("gotquestions.online", "random");
@@ -33,14 +33,9 @@ async function main() {
   if (question.questionPreview?.length) {
     console.log("\n🖼️ Preview images:", question.questionPreview);
   }
-  console.log("\n--- Generating hint via OpenRouter ---");
-  console.log(`model:       ${process.env.OPENROUTER_HINT_MODEL ?? "(default)"}`);
-  const configuredMaxTokens = Number(process.env.OPENROUTER_HINT_MAX_TOKENS);
-  const effectiveMaxTokens =
-    Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
-      ? Math.min(Math.floor(configuredMaxTokens), 30)
-      : 20;
-  console.log(`max_tokens:  ${effectiveMaxTokens}`);
+  console.log("\n--- Generating hint via Gemini ---");
+  console.log(`model:           ${process.env.GEMINI_MODEL ?? "(default: gemini-2.5-flash)"}`);
+  console.log(`maxOutputTokens: 500`);
 
   const hint = await generateHint(
     question.question ?? "",
