@@ -228,21 +228,39 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   }
 
   /**
-   * Pre-download every URL in `urls` with the browser User-Agent and return
-   * a parallel array of `{ buffer, filename }` (or `undefined` for failed
-   * entries, so callers can fall back to the URL).
+   * Hosts known to accept the Telegram Bot API's User-Agent directly, so
+   * the loader doesn't have to download the image and upload it as bytes
+   * for them. Anything else (notably gotquestions.online itself) gets
+   * blocked with 403 when Telegram fetches it, so we download it.
    */
-  private async _downloadPreviews(
-    urls: string[],
+  private _isTelegramFetchable(url: string): boolean {
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      // db.chgk.info hosts the original (generic) razdatka for older
+      // questions and accepts any UA; extending this allowlist is safe as
+      // long as the upstream doesn't add a similar UA filter.
+      return host === "db.chgk.info" || host.endsWith(".db.chgk.info");
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Return a `{ buffer, filename }` for one preview URL if (and only if)
+   * the URL is on a host the Telegram Bot API cannot fetch. Hosts known
+   * to accept the TelegramBot UA (e.g. db.chgk.info) skip the download
+   * entirely and the caller falls back to passing the URL directly.
+   */
+  private async _downloadIfNeeded(
+    url: string,
     redis?: RedisClientType,
-  ): Promise<Array<PreviewBuffer | undefined>> {
-    return Promise.all(
-      urls.map(async (url) => {
-        const buffer = await this._downloadPreview(url, redis);
-        if (!buffer) return undefined;
-        return { buffer, filename: this._previewFilename(url) };
-      }),
-    );
+  ): Promise<PreviewBuffer | undefined> {
+    if (this._isTelegramFetchable(url)) {
+      return undefined;
+    }
+    const buffer = await this._downloadPreview(url, redis);
+    if (!buffer) return undefined;
+    return { buffer, filename: this._previewFilename(url) };
   }
 
   /**
@@ -620,23 +638,24 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
   // ---------------------------------------------------------------------------
 
   /**
-   * Collect preview image URLs from raw question data, in priority order:
-   * `razdatkaPicGeneric` first (absolute URL, typically hosted on
-   * db.chgk.info and reachable by the Telegram Bot API), then the
-   * site-local `razdatkaPic` (relative `/pics/...` path, which is blocked
-   * to non-browser UAs and therefore needs to be downloaded by the bot).
-   * A single question has at most one razdatka, but both fields are kept
-   * here for symmetry with the answer-side previews.
+   * Return the razdatka preview URL for a question (at most one — a question
+   * has a single razdatka, the two source fields are alternate URLs to the
+   * same image). Preference order:
+   *
+   *   1. `razdatkaPicGeneric` — absolute URL on db.chgk.info; TelegramBot
+   *      can fetch it directly (no extra HTTP request from the bot).
+   *   2. `razdatkaPic` — site-local `/pics/...` path on gotquestions.online;
+   *      TelegramBot gets 403 because the site filters non-browser UAs, so
+   *      the loader must download it and upload the bytes instead.
    */
-  private _resolvePreviewUrls(questionData: RawQuestion): string[] {
-    const urls: string[] = [];
+  private _resolvePreviewUrl(questionData: RawQuestion): string | null {
     if (questionData.razdatkaPicGeneric) {
-      urls.push(questionData.razdatkaPicGeneric);
+      return questionData.razdatkaPicGeneric;
     }
     if (questionData.razdatkaPic) {
-      urls.push(this._absoluteUrl(questionData.razdatkaPic));
+      return this._absoluteUrl(questionData.razdatkaPic);
     }
-    return urls;
+    return null;
   }
 
   /**
@@ -792,17 +811,20 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
       result.description = descriptionParts.join("\n\n");
     }
 
-    // Resolve preview URLs (priority: generic → local) and pre-download bytes.
-    const questionPreviewUrls = this._resolvePreviewUrls(questionData);
-    if (questionPreviewUrls.length > 0) {
-      result.questionPreview = [...questionPreviewUrls];
-      result.questionPreviewBuffer = await this._downloadPreviews(questionPreviewUrls, redis);
+    // Resolve preview URLs (singular for the razdatka, plural for the answer side)
+    // and pre-download bytes for hosts the Telegram Bot API cannot fetch.
+    const questionPreviewUrl = this._resolvePreviewUrl(questionData);
+    if (questionPreviewUrl) {
+      result.questionPreview = [questionPreviewUrl];
+      result.questionPreviewBuffer = [await this._downloadIfNeeded(questionPreviewUrl, redis)];
     }
 
     const answerPreviewUrls = this._resolveAnswerPreviewUrls(questionData);
     if (answerPreviewUrls.length > 0) {
       result.answerPreview = [...answerPreviewUrls];
-      result.answerPreviewBuffer = await this._downloadPreviews(answerPreviewUrls, redis);
+      result.answerPreviewBuffer = await Promise.all(
+        answerPreviewUrls.map((url) => this._downloadIfNeeded(url, redis)),
+      );
     }
 
     // Clean up empty fields

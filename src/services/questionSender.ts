@@ -234,16 +234,20 @@ function buildPhotoMedia(
   media: string | Buffer;
   caption?: string;
   parse_mode?: "MarkdownV2";
-  fileOptions?: { filename: string };
+  fileOptions?: { filename: string; contentType: string };
 }> {
   return urls.map((url, index) => {
     const entry = buffers?.[index];
     if (entry?.buffer) {
+      // Pass contentType explicitly so node-telegram-bot-api doesn't log a
+      // DeprecationWarning on every image send (lib checks `NTBA_FIX_350` and
+      // defaults to application/octet-stream otherwise).
+      const contentType = guessContentType(entry.filename) ?? "application/octet-stream";
       return {
         type: "photo" as const,
         media: entry.buffer,
         ...(index === 0 ? { caption, parse_mode: "MarkdownV2" as const } : {}),
-        fileOptions: { filename: entry.filename },
+        fileOptions: { filename: entry.filename, contentType },
       };
     }
     return {
@@ -252,6 +256,32 @@ function buildPhotoMedia(
       ...(index === 0 ? { caption, parse_mode: "MarkdownV2" as const } : {}),
     };
   });
+}
+
+/**
+ * Pick a MIME type for an image file based on its extension. Telegram's
+ * `sendPhoto` accepts most image MIME types — falling back to
+ * `application/octet-stream` is the very thing the deprecation warning
+ * complains about, so we try hard to land on a real image MIME.
+ */
+function guessContentType(filename: string): string | null {
+  const lower = filename.toLowerCase();
+  const ext = lower.match(/\.([a-z0-9]{2,5})$/)?.[1];
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "bmp":
+      return "image/bmp";
+    default:
+      return null;
+  }
 }
 
 export default sendQuestionMessage;
