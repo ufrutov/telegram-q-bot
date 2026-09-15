@@ -63,8 +63,11 @@ async function main() {
       isIntegrationTest: true,
     });
 
-    const context = await getQuestionSendContext(chatId, undefined, telegramMessageId);
-    if (!context) throw new Error("Question-send context was not persisted");
+    const result = await getQuestionSendContext(chatId, undefined, telegramMessageId);
+    if (result.status !== "ok") {
+      throw new Error(`Question-send context was not persisted: ${result.status}`);
+    }
+    const { context } = result;
     if (context.answerPayload.answer !== "Тестовый ответ") {
       throw new Error("Answer payload did not round-trip");
     }
