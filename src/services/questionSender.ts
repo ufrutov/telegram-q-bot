@@ -105,19 +105,20 @@ export async function sendQuestionMessage(
   const answerKey = `answer:${chatId}:${questionData.id}`;
   const hintKey = `hint:${chatId}:${questionData.id}`;
 
-  // If question has preview images, send as media group
+  // If question has preview images, send as media group. The loader pre-downloads
+  // each image with a browser User-Agent (gotquestions.online returns 403 to
+  // non-browser UAs, which makes Telegram's fetch fail with WEBPAGE_CURL_FAILED —
+  // see issue link in commit message). We pass the buffer when available, and
+  // fall back to the URL only when the download failed.
   if (questionData.questionPreview && questionData.questionPreview.length > 0) {
-    const media = questionData.questionPreview.map((url, index) => ({
-      type: "photo" as const,
-      media: url,
-      ...(index === 0 && {
-        caption: question,
-        parse_mode: "MarkdownV2" as const,
-      }),
-    }));
+    const media = buildPhotoMedia(
+      questionData.questionPreview,
+      questionData.questionPreviewBuffer,
+      question,
+    );
 
     try {
-      const messages = await bot.sendMediaGroup(chatId, media, { ...threadOpts });
+      const messages = await bot.sendMediaGroup(chatId, media as never, { ...threadOpts });
       const questionMessage = messages[0];
       if (!questionMessage) {
         throw new Error("sendMediaGroup returned empty messages array");
@@ -148,7 +149,17 @@ export async function sendQuestionMessage(
       });
       return { answerKey, questionMessageId: separate.message_id };
     } catch (imgError) {
-      console.error("Error sending question media group:", imgError);
+      const msg = imgError instanceof Error ? imgError.message : String(imgError);
+      const isCurlFail =
+        msg.includes("WEBPAGE_CURL_FAILED") || msg.includes("failed to send message");
+      console.error(
+        `Error sending question media group for question ${questionData.id} ` +
+          `(urls=${JSON.stringify(questionData.questionPreview)}): ${msg}`,
+      );
+      if (!isCurlFail) {
+        // Surface non-curl errors more prominently — they are unexpected.
+        console.error("Non-WEBPAGE_CURL_FAILED media group error, see trace above");
+      }
       // Fall through to send without images
     }
   }
@@ -202,6 +213,75 @@ function createHintPayload(questionData: Question, questionMessageId: number): H
     questionMessageId,
     questionPreview: questionData.questionPreview,
   };
+}
+
+/**
+ * Build the `media` array for `sendMediaGroup`. Each entry is a photo input:
+ * if a matching buffer is available at the same index (downloaded by the
+ * loader with a browser User-Agent), we pass the Buffer so the library
+ * uploads it as multipart/form-data; otherwise we fall back to the URL,
+ * which still works when the upstream allows TelegramBot to fetch it.
+ *
+ * Only the first entry carries the question caption so the photo caption
+ * matches the post-answer text format.
+ */
+function buildPhotoMedia(
+  urls: string[],
+  buffers: Array<{ filename: string; buffer: Buffer } | undefined> | undefined,
+  caption: string,
+): Array<{
+  type: "photo";
+  media: string | Buffer;
+  caption?: string;
+  parse_mode?: "MarkdownV2";
+  fileOptions?: { filename: string; contentType: string };
+}> {
+  return urls.map((url, index) => {
+    const entry = buffers?.[index];
+    if (entry?.buffer) {
+      // Pass contentType explicitly so node-telegram-bot-api doesn't log a
+      // DeprecationWarning on every image send (lib checks `NTBA_FIX_350` and
+      // defaults to application/octet-stream otherwise).
+      const contentType = guessContentType(entry.filename) ?? "application/octet-stream";
+      return {
+        type: "photo" as const,
+        media: entry.buffer,
+        ...(index === 0 ? { caption, parse_mode: "MarkdownV2" as const } : {}),
+        fileOptions: { filename: entry.filename, contentType },
+      };
+    }
+    return {
+      type: "photo" as const,
+      media: url,
+      ...(index === 0 ? { caption, parse_mode: "MarkdownV2" as const } : {}),
+    };
+  });
+}
+
+/**
+ * Pick a MIME type for an image file based on its extension. Telegram's
+ * `sendPhoto` accepts most image MIME types — falling back to
+ * `application/octet-stream` is the very thing the deprecation warning
+ * complains about, so we try hard to land on a real image MIME.
+ */
+function guessContentType(filename: string): string | null {
+  const lower = filename.toLowerCase();
+  const ext = lower.match(/\.([a-z0-9]{2,5})$/)?.[1];
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "bmp":
+      return "image/bmp";
+    default:
+      return null;
+  }
 }
 
 export default sendQuestionMessage;
