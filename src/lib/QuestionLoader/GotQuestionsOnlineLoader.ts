@@ -862,11 +862,21 @@ export default class GotQuestionsOnlineLoader extends BaseQuestionLoader {
         const response = await this._fetchWithAuth(url, {}, redis);
         const html = await response.text();
         const rsc = this._extractRscPayload(html);
-        const raw = this._findJsonObject<RawQuestion>(rsc, "question", (obj) => {
-          if (typeof obj !== "object" || obj === null) return false;
-          const q = obj as RawQuestion;
-          return "text" in q || String(q.id) === String(questionId);
-        });
+        // The page payload contains more than one `"question":{...}` object:
+        // the requested question plus related/sidebar questions. Match on the
+        // id first so the requested question is never shadowed by a related
+        // one that appears earlier in the payload.
+        const raw =
+          this._findJsonObject<RawQuestion>(rsc, "question", (obj) => {
+            if (typeof obj !== "object" || obj === null) return false;
+            return String((obj as RawQuestion).id) === String(questionId);
+          }) ??
+          // Fallback for payloads where the question object has no id field.
+          this._findJsonObject<RawQuestion>(rsc, "question", (obj) => {
+            if (typeof obj !== "object" || obj === null) return false;
+            const q = obj as RawQuestion;
+            return q.id == null && "text" in q;
+          });
         if (!raw) {
           throw new Error("Question not found in page");
         }

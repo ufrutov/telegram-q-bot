@@ -2,6 +2,9 @@
  * Manual test script — run with `node test-got-questions.cjs` from this directory
  * after `npm run build` at the project root.
  *
+ * Pass a question ID to load that exact question instead of a random one:
+ *   node test-got-questions.cjs 496530
+ *
  * Requires: dist/lib/QuestionLoader/QuestionLoader.js and
  *           dist/services/gemini.js must exist.
  */
@@ -17,15 +20,22 @@ async function main() {
   const { generateHint, formatErrorMessage } =
     await import("../../../../dist/src/services/gemini.js");
 
-  async function testComplexity(complexity) {
+  async function testComplexity(complexity, questionId) {
     console.log(`\n${"=".repeat(80)}`);
-    console.log(`Testing complexity: ${complexity.toUpperCase()}`);
+    console.log(
+      questionId
+        ? `Testing question ID: ${questionId} (${complexity.toUpperCase()})`
+        : `Testing complexity: ${complexity.toUpperCase()}`,
+    );
     console.log("=".repeat(80));
 
     const loader = QuestionLoader("gotquestions.online", complexity);
 
     try {
-      const question = await loader.loadQuestion();
+      const question = await loader.loadQuestion(questionId);
+
+      console.log(`\n🆔 Loaded Question ID: ${question.id}`);
+      console.log(`🔗 Link: ${question.link}`);
 
       console.log("\n📝 Question:");
       console.log(question.question);
@@ -67,11 +77,18 @@ async function main() {
     }
   }
 
-  console.log("Testing GotQuestionsOnlineLoader with 4 complexity ranges...\n");
+  const questionId = process.argv[2];
 
-  const complexities = ["random", "easy", "medium", "hard"];
-  for (const complexity of complexities) {
-    await testComplexity(complexity);
+  if (questionId) {
+    console.log(`Testing GotQuestionsOnlineLoader with question ID ${questionId}...\n`);
+    await testComplexity("random", questionId);
+  } else {
+    console.log("Testing GotQuestionsOnlineLoader with 4 complexity ranges...\n");
+
+    const complexities = ["random", "easy", "medium", "hard"];
+    for (const complexity of complexities) {
+      await testComplexity(complexity);
+    }
   }
 
   console.log(`\n${"=".repeat(80)}`);
