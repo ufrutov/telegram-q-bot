@@ -88,6 +88,7 @@ function SidebarNavigation(props: ShellProps) {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
+              className="group-data-[collapsible=icon]:mt-2"
               onClick={() => go({ view: "overview" })}
               tooltip="Question Bot"
             >
