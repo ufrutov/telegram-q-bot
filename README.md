@@ -390,5 +390,7 @@ real configured credentials. Restart the local server after changing `.env.local
 
 Run `npm run build:web` followed by `npm run preview:dashboard` to check built
 frontend assets locally. Deployment builds the frontend before packaging Vercel
-output. Set the GitHub Actions variables `SUPABASE_URL` and `SUPABASE_ANON_KEY`
-for these builds, alongside the existing server environment variables in Vercel.
+output. Set the GitHub Actions variables `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` for these builds (`SUPABASE_URL` and `SUPABASE_ANON_KEY`
+are also accepted as fallbacks), alongside the existing server environment
+variables in Vercel.
