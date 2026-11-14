@@ -163,10 +163,14 @@
   .admin-shell {
     background: var(--sidebar);
   }
+  .admin-shell [data-collapsible="icon"] .workspace-title,
+  .admin-shell [data-collapsible="icon"] [data-sidebar="footer"] .lucide-log-out {
+    display: none;
+  }
   .admin-inset {
-    margin: 8px 8px 8px 0;
+    margin: 0;
     min-width: 0;
-    min-height: calc(100dvh - 16px);
+    min-height: 100dvh;
   }
   .admin-topbar {
     display: flex;
@@ -1358,12 +1362,14 @@
   .send-load-fields label {
     font-size: 12px;
   }
-  .send-load-fields select {
-    height: 42px;
-    min-height: 42px;
-  }
+  .send-load-fields input,
+  .send-load-fields select,
   .send-load-fields > button {
-    min-height: 42px;
+    height: 36px;
+    min-height: 36px;
+  }
+  .send-load-fields select {
+    padding-block: 6px;
   }
   .send-helper {
     color: var(--muted-foreground);

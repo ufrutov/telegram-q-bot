@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import {
   Archive,
   CalendarClock,
@@ -83,8 +83,8 @@ function SidebarNavigation(props: ShellProps) {
   }
   return (
     <Sidebar collapsible="icon" variant="sidebar">
-      <SidebarHeader className="p-4 group-data-[collapsible=icon]:p-2">
-        <SidebarMenu>
+      <SidebarHeader className="p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
+        <SidebarMenu className="group-data-[collapsible=icon]:w-8">
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
@@ -103,9 +103,9 @@ function SidebarNavigation(props: ShellProps) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup className="p-4 group-data-[collapsible=icon]:p-2">
+        <SidebarGroup className="p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
           <SidebarGroupLabel>Workspace</SidebarGroupLabel>
-          <SidebarMenu>
+          <SidebarMenu className="group-data-[collapsible=icon]:w-8">
             <SidebarMenuItem>
               <SidebarMenuButton
                 isActive={props.view === "overview"}
@@ -138,9 +138,9 @@ function SidebarNavigation(props: ShellProps) {
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
-        <SidebarGroup className="p-4 group-data-[collapsible=icon]:p-2">
+        <SidebarGroup className="p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
           <SidebarGroupLabel>Saved views</SidebarGroupLabel>
-          <SidebarMenu>
+          <SidebarMenu className="group-data-[collapsible=icon]:w-8">
             <SidebarMenuItem>
               <SidebarMenuButton
                 isActive={props.view === "chats" && props.cronOnly}
@@ -164,7 +164,7 @@ function SidebarNavigation(props: ShellProps) {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4 group-data-[collapsible=icon]:p-2">
+      <SidebarFooter className="p-4 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
         <div className="sidebar-note">
           <CircleHelp size={16} />
           <p>
@@ -173,7 +173,7 @@ function SidebarNavigation(props: ShellProps) {
             <span>Changes are saved to Supabase.</span>
           </p>
         </div>
-        <SidebarMenu>
+        <SidebarMenu className="group-data-[collapsible=icon]:w-8">
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
@@ -213,7 +213,10 @@ export function AdminShell(props: ShellProps) {
     props.navigate({ view: "chats", chat: null, page: null, search, cron: null, active: null });
   }
   return (
-    <SidebarProvider className="admin-shell">
+    <SidebarProvider
+      className="admin-shell"
+      style={{ "--sidebar-width-icon": "4rem" } as CSSProperties}
+    >
       <a className="skip-link" href="#main">
         Skip to content
       </a>
