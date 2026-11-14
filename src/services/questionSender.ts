@@ -82,24 +82,31 @@ export async function sendQuestionMessage(
     throw loadError;
   }
 
-  // Format question and answer for Telegram (MarkdownV2)
-  const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
-
-  if (questionId) {
-    console.log(
-      `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] Load question by id: ${questionId} (${questionData.link})`,
-    );
-  } else {
-    console.log(
-      `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] ${complexity} question: ${questionData.link}`,
-    );
-  }
-
   try {
     await bot.deleteMessage(chatId, loadingMsg.message_id);
   } catch {
-    /* ignore */
+    // Loading messages are temporary; delivery can proceed if cleanup fails.
   }
+  return sendLoadedQuestionMessage(bot, questionData, chatId, complexity, threadId, title);
+}
+
+/** Deliver a previously loaded question, preserving the normal bot UI and history.
+ * Dashboard batches reuse one Question object so every recipient gets the same ID.
+ */
+export async function sendLoadedQuestionMessage(
+  bot: TelegramBot,
+  questionData: Question,
+  chatId: string | number,
+  complexity: Complexity = "random",
+  threadId?: number,
+  title?: string,
+): Promise<SendQuestionResult> {
+  const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
+  const questionLoader = QuestionLoader(DEFAULT_TARGET, complexity);
+  const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
+  console.log(
+    `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] ${complexity} question: ${questionData.link}`,
+  );
 
   // Generate Redis keys for answer and hint storage
   const answerKey = `answer:${chatId}:${questionData.id}`;

@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+package-lock.json
 
 # Build output
 dist/
@@ -17,7 +18,7 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 npm-error.log*
-package-lock.json*
+
 
 # OS files
 .DS_Store
@@ -32,3 +33,7 @@ src/lib/QuestionLoader/test/mock/
 
 # Supabase CLI temp files
 supabase/.temp/
+
+# Browser test artifacts
+playwright-report/
+test-results/

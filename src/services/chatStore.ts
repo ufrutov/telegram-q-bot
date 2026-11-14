@@ -13,10 +13,8 @@
  * - markChatCronSent: idempotency stamp; the ticker skips a chat whose
  *   last_sent_at is already today in chat timezone.
  *
- * Per-invocation cache: rows survive as long as the module instance does,
- * which on Vercel means across many invocations within the same warm
- * function. Cold starts wipe it, which is fine — the next call is one
- * round-trip to Postgres.
+ * Rows are read fresh so dashboard changes and deletions are visible across
+ * warm Vercel functions without an in-memory cache retaining stale settings.
  *
  * All errors are logged and swallowed. The bot never crashes because the DB
  * is missing.
@@ -40,14 +38,6 @@ export interface ChatRow {
 
 export type CronResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const cache = new Map<string, ChatRow>();
-
-function cacheKey(chatId: number | string, threadId: number | undefined): string {
-  const chatPart = String(chatId);
-  const threadPart = threadId == null ? "" : String(threadId);
-  return `${chatPart}:${threadPart}`;
-}
-
 /**
  * Returns the chat row, creating it if it does not yet exist.
  *
@@ -66,12 +56,6 @@ export async function getOrCreateChat(
   const numericChatId = typeof chatId === "string" ? Number(chatId) : chatId;
   if (!Number.isFinite(numericChatId)) {
     return null;
-  }
-
-  const key = cacheKey(chatId, threadId);
-  const cached = cache.get(key);
-  if (cached) {
-    return cached;
   }
 
   const supabase = getSupabaseClient();
@@ -105,7 +89,6 @@ export async function getOrCreateChat(
     }
 
     const out: ChatRow = rowFromData(data);
-    cache.set(key, out);
     return out;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -125,12 +108,6 @@ export async function getChat(
   const numericChatId = typeof chatId === "string" ? Number(chatId) : chatId;
   if (!Number.isFinite(numericChatId)) {
     return null;
-  }
-
-  const key = cacheKey(chatId, threadId);
-  const cached = cache.get(key);
-  if (cached) {
-    return cached;
   }
 
   const supabase = getSupabaseClient();
@@ -161,7 +138,6 @@ export async function getChat(
     }
 
     const out: ChatRow = rowFromData(data);
-    cache.set(key, out);
     return out;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -210,9 +186,6 @@ export async function setCronEnabled(
 
     if (error) return { ok: false, error: `DB error: ${error.message}` };
     if (!data) return { ok: false, error: "Upsert returned no row" };
-
-    // Invalidate the per-invocation cache so the next read sees the change.
-    cache.delete(cacheKey(chatId, threadId));
 
     return {
       ok: true,

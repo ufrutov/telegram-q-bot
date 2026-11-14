@@ -13,7 +13,7 @@
  * Usage: node .github/vercel/build-vercel.mjs
  */
 
-import { readFile, writeFile, mkdir, copyFile, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir, copyFile, rm, cp } from "node:fs/promises";
 import { join, dirname, relative, resolve, sep } from "node:path";
 import { nodeFileTrace } from "@vercel/nft";
 
@@ -22,6 +22,7 @@ const OUTPUT = ".vercel/output";
 
 const ENTRY_POINTS = [
   { src: "api/webhook.js", route: "api/webhook" },
+  { src: "api/dashboard.js", route: "api/dashboard" },
   { src: "api/cron/ticker.js", route: "api/cron/ticker" },
 ];
 
@@ -82,6 +83,7 @@ async function buildFunction(entry, pkgJson) {
 
   const vcConfig = {
     handler: entry.src,
+    ...(entry.route === "api/dashboard" ? { maxDuration: 60 } : {}),
     runtime: RUNTIME,
     architecture: "x86_64",
     environment: {},
@@ -122,8 +124,29 @@ async function main() {
     console.log(`  → ${count} files copied`);
   }
 
+  // Copy only browser assets. Never expose compiled backend files or env files.
+  await cp(join(DIST, "web"), join(OUTPUT, "static"), { recursive: true });
   const config = {
     version: 3,
+    routes: [
+      {
+        src: "/assets/(.*)",
+        headers: { "Cache-Control": "public, max-age=31536000, immutable" },
+        continue: true,
+      },
+      {
+        src: "/(index[.]html)?",
+        headers: {
+          "Cache-Control": "public, max-age=0, must-revalidate",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "strict-origin-when-cross-origin",
+          "Content-Security-Policy":
+            "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://*.supabase.co; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        },
+        continue: true,
+      },
+      { handle: "filesystem" },
+    ],
     crons: vercelConfig.crons ?? [],
   };
   await writeFile(join(OUTPUT, "config.json"), JSON.stringify(config, null, "\t"));
