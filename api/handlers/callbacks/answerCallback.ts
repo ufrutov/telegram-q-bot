@@ -4,6 +4,7 @@
 
 import type TelegramBot from "node-telegram-bot-api";
 
+import type { ChatInteractionSettings } from "@/services/chatInteractionSettings.js";
 import { TARGET_DOMAIN, MESSAGES } from "@/bot/constants.js";
 import { getQuestionSendContext } from "@/services/questionSendStore.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
@@ -26,6 +27,7 @@ export default async function answerCallback(
   callbackQuery: TelegramCallbackQuery,
   parsed: AnswerCallbackAction,
   threadId: number | undefined,
+  settings: ChatInteractionSettings,
 ): Promise<void> {
   const chatId = callbackQuery.message?.chat?.id;
   const answerKey = parsed.answerKey;
@@ -75,24 +77,28 @@ export default async function answerCallback(
     const messageToReply = questionMessageId ?? messageId;
 
     // Shared action row: 📦 Играть весь пакет when the answer belongs to a
-    // pack, ✅ Засчитать ответ always.
+    // pack and commands are enabled; ✅ Засчитать ответ when actions are enabled.
     //
     // `messageId` is the message that carried the 📖/✨ buttons — the same
     // telegram_message_id stored in tq-bot-question_sends. Embedding it in
     // the callback lets answeredCallback flag the right row, because these
     // buttons live on a NEW message with a different id.
     const actionsRow: InlineButton[] = [];
-    if (packId) {
+    if (packId && settings.commands_enabled && settings.answer_buttons_enabled) {
       actionsRow.push({
         text: MESSAGES.BUTTON_PLAY_PACK,
         callback_data: JSON.stringify({ action: "pack", packId }),
       });
     }
-    actionsRow.push({
-      text: MESSAGES.BUTTON_ANSWERED,
-      callback_data: JSON.stringify({ action: "answered", mid: messageId }),
-    });
-    const replyMarkup: InlineKeyboardMarkup = { inline_keyboard: [actionsRow] };
+    if (settings.answer_buttons_enabled) {
+      actionsRow.push({
+        text: MESSAGES.BUTTON_ANSWERED,
+        callback_data: JSON.stringify({ action: "answered", mid: messageId }),
+      });
+    }
+    const replyMarkup: InlineKeyboardMarkup | undefined = actionsRow.length
+      ? { inline_keyboard: [actionsRow] }
+      : undefined;
 
     if (answerPreview && answerPreview.length > 0) {
       // Telegram API constraint: sendMediaGroup cannot carry an inline
@@ -127,7 +133,7 @@ export default async function answerCallback(
           disable_web_page_preview: true,
           reply_markup: replyMarkup,
         });
-      } else {
+      } else if (replyMarkup) {
         try {
           await bot.sendMessage(chatId, escapeMarkdownV2(MESSAGES.ANSWER_TITLE), {
             ...threadOpts,
