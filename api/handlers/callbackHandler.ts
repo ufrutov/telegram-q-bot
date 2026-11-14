@@ -5,6 +5,10 @@
 import type TelegramBot from "node-telegram-bot-api";
 import type { RedisClientType } from "redis";
 
+import {
+  getChatInteractionSettings,
+  isCallbackEnabled,
+} from "@/services/chatInteractionSettings.js";
 import questionCallback from "./callbacks/questionCallback.js";
 import answerCallback from "./callbacks/answerCallback.js";
 import hintCallback from "./callbacks/hintCallback.js";
@@ -69,6 +73,12 @@ export default async function callbackHandler(
     return;
   }
 
+  const settings = await getChatInteractionSettings(chatId, threadId);
+  if (!isCallbackEnabled(parsed, settings)) {
+    await bot.answerCallbackQuery(callbackQuery.id);
+    return;
+  }
+
   if ("action" in parsed) {
     if (parsed.action === "question") {
       await questionCallback(bot, redis, callbackQuery, parsed, threadId);
@@ -102,7 +112,7 @@ export default async function callbackHandler(
       await answeredCallback(bot, callbackQuery, parsed, threadId);
     }
   } else if ("answerKey" in parsed) {
-    await answerCallback(bot, callbackQuery, parsed, threadId);
+    await answerCallback(bot, callbackQuery, parsed, threadId, settings);
   } else if ("hintKey" in parsed) {
     await hintCallback(bot, callbackQuery, parsed, threadId);
   }

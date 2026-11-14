@@ -8,6 +8,7 @@ import type { RedisClientType } from "redis";
 import { sendQuestionMessage } from "@/services/questionSender.js";
 import { sendPackMessage } from "@/services/packSender.js";
 import { MESSAGES } from "@/bot/constants.js";
+import { getChatInteractionSettings } from "@/services/chatInteractionSettings.js";
 import cronCommand from "./commands/cronCommand.js";
 import statsCommand from "./commands/statsCommand.js";
 import type { Complexity } from "@/types/question.js";
@@ -182,24 +183,38 @@ export default async function messageHandler(
 
   if (!messageText) return;
 
+  const match = messageText.match(
+    /^\/(question|questioneasy|questionmedium|questionhard|menu|pack|stats|cron)(?:@([A-Za-z0-9_]+))?(?=\s|$)/,
+  );
+  if (!match) return; // Includes /start, which remains unimplemented.
+  const command = `/${match[1]}`;
+
   try {
-    if (messageText.startsWith("/cron")) {
+    if (match[2]) {
+      const me = await bot.getMe();
+      if (me.username?.toLowerCase() !== match[2].toLowerCase()) return;
+    }
+    const settings = await getChatInteractionSettings(chatId, threadId);
+    if (!settings.commands_enabled) return;
+    const normalizedText = command + messageText.slice(match[0].length);
+
+    if (command === "/cron") {
       await cronCommand(bot, message, threadId);
-    } else if (messageText.startsWith("/stats")) {
+    } else if (command === "/stats") {
       await statsCommand(bot, message, threadId);
-    } else if (messageText.startsWith("/question")) {
+    } else if (command in COMPLEXITY_MAP) {
       await handleQuestionCommand(
         bot,
         redis,
         chatId,
-        messageText,
+        normalizedText,
         threadId,
         resolveChatTitle(message.chat),
       );
-    } else if (messageText.startsWith("/menu")) {
+    } else if (command === "/menu") {
       await handleMenuCommand(bot, chatId, threadId);
-    } else if (messageText.startsWith("/pack")) {
-      await handlePackCommand(bot, redis, chatId, messageText, threadId);
+    } else if (command === "/pack") {
+      await handlePackCommand(bot, redis, chatId, normalizedText, threadId);
     }
   } catch (error) {
     console.error("Error handling message:", error);

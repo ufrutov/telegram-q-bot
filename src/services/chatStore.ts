@@ -31,6 +31,8 @@ export interface ChatRow {
   title: string | null;
   timezone: string;
   is_active: boolean;
+  commands_enabled: boolean;
+  answer_buttons_enabled: boolean;
   cron_enabled: boolean;
   cron_time: string;
   cron_last_sent_at: string | null;
@@ -89,7 +91,7 @@ export async function getOrCreateChat(
       .from(TABLES.chats)
       .upsert(row, { onConflict: "chat_id,thread_id", ignoreDuplicates: false })
       .select(
-        "id, chat_id, thread_id, title, timezone, is_active, cron_enabled, cron_time, cron_last_sent_at",
+        "id, chat_id, thread_id, title, timezone, is_active, commands_enabled, answer_buttons_enabled, cron_enabled, cron_time, cron_last_sent_at",
       )
       .single();
 
@@ -140,7 +142,7 @@ export async function getChat(
     let query = supabase
       .from(TABLES.chats)
       .select(
-        "id, chat_id, thread_id, title, timezone, is_active, cron_enabled, cron_time, cron_last_sent_at",
+        "id, chat_id, thread_id, title, timezone, is_active, commands_enabled, answer_buttons_enabled, cron_enabled, cron_time, cron_last_sent_at",
       )
       .eq("chat_id", numericChatId);
 
@@ -290,6 +292,8 @@ function rowFromData(data: {
   title: string | null;
   timezone: string;
   is_active: boolean;
+  commands_enabled: boolean;
+  answer_buttons_enabled: boolean;
   cron_enabled: boolean;
   cron_time: string;
   cron_last_sent_at: string | null;
@@ -301,6 +305,8 @@ function rowFromData(data: {
     title: data.title,
     timezone: data.timezone,
     is_active: data.is_active,
+    commands_enabled: data.commands_enabled,
+    answer_buttons_enabled: data.answer_buttons_enabled,
     cron_enabled: data.cron_enabled,
     cron_time: data.cron_time,
     cron_last_sent_at: data.cron_last_sent_at,

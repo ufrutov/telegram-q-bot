@@ -20,6 +20,7 @@
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
+    "test:interactions": "npm run build && node test/chat-interaction-settings.cjs",
     "test:integration": "npm run build && node test/supabase-question-state.integration.cjs",
     "validate": "oxlint && oxfmt --check && tsc --noEmit"
   },

@@ -286,6 +286,54 @@ Each forum topic is a separate row in `tq-bot-chats` (the
 `unique (chat_id, thread_id)` constraint), so `/cron` toggles the daily
 question independently for each topic.
 
+## Per-chat interaction settings
+
+Apply `supabase/migrations/0004_chat_interaction_settings.sql` manually in the
+Supabase SQL editor before deploying this version. Both columns default to `TRUE`,
+including on existing rows.
+
+| Column                   | Behavior when `FALSE`                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `commands_enabled`       | Silently ignore commands and block menu, pack-navigation, statistics, and cron-setting callbacks. |
+| `answer_buttons_enabled` | Hide and disable “Play pack” and “Count answer” buttons on answer messages.                       |
+
+`/start` remains unimplemented and ignored. Answer and Hint buttons remain
+available, and scheduled questions still depend on `is_active` and `cron_enabled`.
+“Play pack” requires both flags to be enabled; “Count answer” requires only
+`answer_buttons_enabled`. This setting controls the existing “Count answer”
+button; Statistics is a separate menu action.
+
+A row with `thread_id IS NULL` applies to the entire chat/group, including all
+forum topics. A topic row can further restrict interactions; either row being
+`FALSE` disables that capability. Missing rows default to enabled. Settings are
+read fresh for each relevant update, so dashboard edits affect subsequent requests
+without a restart. Database lookup failures suppress restricted interactions.
+
+For an existing chat, disable commands across the whole group:
+
+```sql
+UPDATE "tq-bot-chats"
+SET commands_enabled = FALSE, updated_at = now()
+WHERE chat_id = -1001234567890 AND thread_id IS NULL;
+```
+
+If the group only has topic rows, create its group-level settings row:
+
+```sql
+INSERT INTO "tq-bot-chats" (chat_id, thread_id, commands_enabled)
+VALUES (-1001234567890, NULL, FALSE)
+ON CONFLICT (chat_id, thread_id)
+DO UPDATE SET commands_enabled = EXCLUDED.commands_enabled, updated_at = now();
+```
+
+Set `answer_buttons_enabled = FALSE` on the relevant group or topic row to hide
+answer actions. Existing message keyboards are not proactively edited, but their
+restricted callbacks are acknowledged silently and perform no action. Telegram's
+slash-command suggestions are unchanged; `/menu` and its callbacks are guarded
+inside the bot.
+
+Run offline interaction tests with `npm run test:interactions`.
+
 ## Database Setup
 
 The bot uses [Supabase](https://supabase.com) (Postgres) for chat-related

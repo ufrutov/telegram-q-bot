@@ -30,6 +30,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Test chat interaction settings offline
+        run: npm run test:interactions
+
       - name: Check test database configuration
         run: |
           test -n "$SUPABASE_INTEGRATION_URL" || { echo "::error::Set the SUPABASE_URL Actions variable."; exit 1; }
