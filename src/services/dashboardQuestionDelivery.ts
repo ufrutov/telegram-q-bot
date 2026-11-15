@@ -71,23 +71,25 @@ export interface DeliveryDependencies {
   send: (question: Question, chat: DashboardChat) => Promise<{ questionMessageId: number }>;
 }
 /** Side effects are explicit and injectable for local smoke checks without Telegram. */
-export async function deliverDashboardQuestion(
+async function deliverBatch<T>(
   userId: string,
   draftId: string,
-  questionId: string,
-  complexity: Complexity,
+  payloadKey: string[],
   chats: DashboardChat[],
   redis: RedisClientType | null,
-  dependencies: DeliveryDependencies,
+  dependencies: {
+    load: () => Promise<T>;
+    send: (value: T, chat: DashboardChat) => Promise<{ messageId: number }>;
+  },
 ): Promise<QuestionDelivery[]> {
   const keys = chats.map(
     (chat) =>
-      `dashboard:question:${createHash("sha256")
-        .update(JSON.stringify([userId, draftId, questionId, complexity, chat.id]))
+      `dashboard:${payloadKey[0]}:${createHash("sha256")
+        .update(JSON.stringify([userId, draftId, ...payloadKey.slice(1), chat.id]))
         .digest("hex")}`,
   );
   const results: QuestionDelivery[] = [];
-  let question: Question | undefined;
+  let value: T | undefined;
   for (const [index, chat] of chats.entries()) {
     const key = keys[index];
     const previous = await claim(key, chat.id, redis);
@@ -96,7 +98,7 @@ export async function deliverDashboardQuestion(
       continue;
     }
     try {
-      question ??= await dependencies.load();
+      value ??= await dependencies.load();
     } catch (error) {
       // No Telegram request has started, so a failed source load can be retried.
       if (redis) await redis.del(key);
@@ -105,8 +107,8 @@ export async function deliverDashboardQuestion(
     }
     let result: QuestionDelivery;
     try {
-      const sent = await dependencies.send(question, chat);
-      result = { chatRowId: chat.id, status: "sent", messageId: sent.questionMessageId };
+      const sent = await dependencies.send(value, chat);
+      result = { chatRowId: chat.id, status: "sent", messageId: sent.messageId };
     } catch (error) {
       const body = (
         error as { response?: { body?: { description?: string; error_code?: number } } }
@@ -118,7 +120,7 @@ export async function deliverDashboardQuestion(
           body?.description?.slice(0, 200) ??
           "Delivery could not be confirmed. Check Telegram before sending again.",
       };
-      console.error(`[dashboard] question delivery ${result.status} for chat row ${chat.id}`);
+      console.error(`[dashboard] delivery ${result.status} for chat row ${chat.id}`);
     }
     // Retain the pending claim if persisting a result fails; do not resend blindly.
     await save(key, result, redis);
@@ -126,6 +128,45 @@ export async function deliverDashboardQuestion(
   }
   return results;
 }
+export function deliverDashboardQuestion(
+  userId: string,
+  draftId: string,
+  questionId: string,
+  complexity: Complexity,
+  chats: DashboardChat[],
+  redis: RedisClientType | null,
+  dependencies: DeliveryDependencies,
+): Promise<QuestionDelivery[]> {
+  return deliverBatch(userId, draftId, ["question", questionId, complexity], chats, redis, {
+    load: dependencies.load,
+    send: async (question, chat) => ({
+      messageId: (await dependencies.send(question, chat)).questionMessageId,
+    }),
+  });
+}
+
+/** Plain announcements have no question buttons or question-history rows. */
+export function deliverDashboardMessage(
+  userId: string,
+  draftId: string,
+  text: string,
+  chats: DashboardChat[],
+  redis: RedisClientType | null,
+  bot: Pick<TelegramBot, "sendMessage">,
+): Promise<QuestionDelivery[]> {
+  return deliverBatch(userId, draftId, ["message", text], chats, redis, {
+    load: async () => text,
+    send: async (message, chat) => {
+      const sent = await bot.sendMessage(chat.chat_id, message, {
+        parse_mode: "Markdown",
+        disable_web_page_preview: true,
+        ...(chat.thread_id == null ? {} : { message_thread_id: chat.thread_id }),
+      });
+      return { messageId: sent.message_id };
+    },
+  });
+}
+
 export function dashboardDeliveryDependencies(
   bot: TelegramBot,
   questionId: string,

@@ -388,6 +388,17 @@ it to up to 10 selected chats/topics. Sending requires `TELEGRAM_BOT_TOKEN` and
 uses the existing question loader and Telegram delivery flow. Local sends use
 real configured credentials. Restart the local server after changing `.env.local`.
 
+Select Message on the same page to compose an announcement in Telegram Markdown:
+`*bold*`, `_italic_`, inline code and `[text](https://example.com)` links. Preview
+the message before sending; editing the text requires a new preview. Messages
+are limited to 4096 characters and are delivered without question buttons or
+question-history entries. Per-chat results report invalid Markdown or delivery
+failures. Duplicate protection uses Redis when configured, or the current server
+process otherwise. Check Telegram before starting a new send after an unconfirmed
+result.
+
+The sidebar displays the package version bundled at build time.
+
 Run `npm run build:web` followed by `npm run preview:dashboard` to check built
 frontend assets locally. Deployment builds the frontend before packaging Vercel
 output. Set the GitHub Actions variables `VITE_SUPABASE_URL` and

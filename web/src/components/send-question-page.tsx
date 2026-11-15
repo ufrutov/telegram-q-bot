@@ -22,7 +22,6 @@ import type {
   ChatPage,
   DashboardChat,
   QuestionDelivery,
-  QuestionDeliveryResult,
   QuestionDraft,
 } from "../../../src/types/dashboard";
 import { TelegramMarkdown } from "./telegram-markdown";
@@ -39,7 +38,10 @@ const LIMIT = 10;
 
 export function SendQuestionPage() {
   const client = useQueryClient();
-  const [mode, setMode] = useState<"random" | "id">("random");
+  const [mode, setMode] = useState<"random" | "id" | "message">("random");
+  const [messageText, setMessageText] = useState("");
+  const [messageDraft, setMessageDraft] = useState<{ text: string; draftId: string } | null>(null);
+  const isMessage = mode === "message";
   const [questionId, setQuestionId] = useState("");
   const [complexity, setComplexity] = useState<QuestionDraft["complexity"]>("random");
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -65,6 +67,13 @@ export function SendQuestionPage() {
   async function load(event: FormEvent) {
     event.preventDefault();
     if (busyRef.current) return;
+    if (isMessage) {
+      if (!messageText.trim() || messageText.length > 4096) return;
+      setMessageDraft({ text: messageText, draftId: crypto.randomUUID() });
+      setDeliveries(new Map());
+      setSendError("");
+      return;
+    }
     busyRef.current = true;
     setLoading(true);
     setLoadError("");
@@ -97,23 +106,41 @@ export function SendQuestionPage() {
     });
   }
   const unsent = [...selected.values()].filter((chat) => !deliveries.has(chat.id));
+  const ready = isMessage ? !!messageDraft && messageDraft.text === messageText : !!draft;
+  function changeMode(value: typeof mode) {
+    setMode(value);
+    setDeliveries(new Map());
+    setSendError("");
+    setLoadError("");
+  }
   async function send() {
-    if (!draft || !unsent.length || busyRef.current) return;
+    if (!ready || !unsent.length || busyRef.current) return;
     busyRef.current = true;
     setSending(true);
     setSendError("");
     const targets = [...unsent];
     try {
-      const response = await api<QuestionDeliveryResult>({ resource: "send-question" }, undefined, {
-        method: "POST",
-        body: {
-          action: "send",
-          questionId: draft.id,
-          complexity: draft.complexity,
-          draftId: draft.draftId,
-          chatIds: targets.map((chat) => chat.id),
+      const response = await api<{ results: QuestionDelivery[] }>(
+        { resource: "send-question" },
+        undefined,
+        {
+          method: "POST",
+          body: isMessage
+            ? {
+                action: "send-message",
+                text: messageDraft!.text,
+                draftId: messageDraft!.draftId,
+                chatIds: targets.map((chat) => chat.id),
+              }
+            : {
+                action: "send",
+                questionId: draft!.id,
+                complexity: draft!.complexity,
+                draftId: draft!.draftId,
+                chatIds: targets.map((chat) => chat.id),
+              },
         },
-      });
+      );
       setDeliveries((current) => {
         const next = new Map(current);
         for (const result of response.results)
@@ -148,28 +175,34 @@ export function SendQuestionPage() {
       <div className="page-heading">
         <div>
           <h1>Send question</h1>
-          <p>Preview a question, choose your chats, and send it when you’re ready.</p>
+          <p>
+            Preview a question or announcement, choose your chats, and send it when you’re ready.
+          </p>
         </div>
         <Badge variant="outline">Manual delivery</Badge>
       </div>
       <div className="send-page-grid">
-        <section className="send-compose" aria-label="Question selection and preview">
+        <section className="send-compose" aria-label="Content and preview">
           <Card className="send-panel block gap-0 p-0">
             <div className="send-panel-heading">
               <span className="step-number">1</span>
               <div>
-                <h2>Choose a question</h2>
-                <p>Load a random question or enter a specific ID.</p>
+                <h2>{isMessage ? "Write a message" : "Choose a question"}</h2>
+                <p>
+                  {isMessage
+                    ? "Compose an announcement using Telegram Markdown."
+                    : "Load a random question or enter a specific ID."}
+                </p>
               </div>
             </div>
             <form className="send-load-form" onSubmit={load}>
-              <div className="send-mode" aria-label="Question source">
+              <div className="send-mode" aria-label="Content type">
                 <Button
                   type="button"
                   variant={mode === "random" ? "secondary" : "ghost"}
                   aria-pressed={mode === "random"}
                   disabled={loading || sending}
-                  onClick={() => setMode("random")}
+                  onClick={() => changeMode("random")}
                 >
                   <Shuffle size={15} />
                   Random question
@@ -179,112 +212,184 @@ export function SendQuestionPage() {
                   variant={mode === "id" ? "secondary" : "ghost"}
                   aria-pressed={mode === "id"}
                   disabled={loading || sending}
-                  onClick={() => setMode("id")}
+                  onClick={() => changeMode("id")}
                 >
                   <Hash size={15} />
                   By question ID
                 </Button>
-              </div>
-              <div className="send-load-fields">
-                {mode === "id" && (
-                  <div className="form-field">
-                    <Label htmlFor="send-question-id">Question ID</Label>
-                    <Input
-                      id="send-question-id"
-                      inputMode="numeric"
-                      pattern="[0-9]+"
-                      maxLength={15}
-                      placeholder="e.g. 254609"
-                      required
-                      value={questionId}
-                      onChange={(event) => setQuestionId(event.target.value)}
-                      disabled={loading || sending}
-                    />
-                  </div>
-                )}
-                <div className="form-field">
-                  <Label htmlFor="send-complexity">
-                    {mode === "random" ? "Difficulty" : "Difficulty label"}
-                  </Label>
-                  <select
-                    id="send-complexity"
-                    value={complexity}
-                    onChange={(event) =>
-                      setComplexity(event.target.value as QuestionDraft["complexity"])
-                    }
-                    disabled={loading || sending}
-                  >
-                    <option value="random">Any difficulty</option>
-                    <option value="easy">Easy</option>
-                    <option value="medium">Medium</option>
-                    <option value="hard">Hard</option>
-                  </select>
-                </div>
-                <Button type="submit" variant="outline" disabled={loading || sending}>
-                  {loading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
-                  {loading ? "Loading…" : draft ? "Load another question" : "Load question"}
+                <Button
+                  type="button"
+                  variant={isMessage ? "secondary" : "ghost"}
+                  aria-pressed={isMessage}
+                  disabled={loading || sending}
+                  onClick={() => changeMode("message")}
+                >
+                  <MessageSquare size={15} /> Message
                 </Button>
               </div>
+              {isMessage ? (
+                <div className="form-field">
+                  <Label htmlFor="announcement-text">Message text</Label>
+                  <textarea
+                    id="announcement-text"
+                    className="announcement-input"
+                    value={messageText}
+                    maxLength={4096}
+                    rows={9}
+                    required
+                    disabled={sending}
+                    placeholder={"*Quiz night update*\nJoin us this Friday!"}
+                    onChange={(event) => setMessageText(event.target.value)}
+                    aria-describedby="announcement-format"
+                  />
+                  <p id="announcement-format" className="send-helper">
+                    Telegram Markdown: *bold*, _italic_, `code`, [text](https://example.com). Use a
+                    backslash to escape literal formatting characters. No nested formatting.
+                  </p>
+                  <div className="announcement-actions">
+                    <span className="send-helper">{messageText.length} / 4096</span>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      disabled={sending || !messageText.trim()}
+                    >
+                      Preview message
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="send-load-fields">
+                  {mode === "id" && (
+                    <div className="form-field">
+                      <Label htmlFor="send-question-id">Question ID</Label>
+                      <Input
+                        id="send-question-id"
+                        inputMode="numeric"
+                        pattern="[0-9]+"
+                        maxLength={15}
+                        placeholder="e.g. 254609"
+                        required
+                        value={questionId}
+                        onChange={(event) => setQuestionId(event.target.value)}
+                        disabled={loading || sending}
+                      />
+                    </div>
+                  )}
+                  <div className="form-field">
+                    <Label htmlFor="send-complexity">
+                      {mode === "random" ? "Difficulty" : "Difficulty label"}
+                    </Label>
+                    <select
+                      id="send-complexity"
+                      value={complexity}
+                      onChange={(event) =>
+                        setComplexity(event.target.value as QuestionDraft["complexity"])
+                      }
+                      disabled={loading || sending}
+                    >
+                      <option value="random">Any difficulty</option>
+                      <option value="easy">Easy</option>
+                      <option value="medium">Medium</option>
+                      <option value="hard">Hard</option>
+                    </select>
+                  </div>
+                  <Button type="submit" variant="outline" disabled={loading || sending}>
+                    {loading ? (
+                      <LoaderCircle className="spin" size={15} />
+                    ) : (
+                      <RefreshCw size={15} />
+                    )}
+                    {loading ? "Loading…" : draft ? "Load another question" : "Load question"}
+                  </Button>
+                </div>
+              )}
               {loadError && (
                 <p className="field-error" role="alert">
                   {loadError}
                 </p>
               )}
-              <p className="send-helper">Loading a question does not send anything to Telegram.</p>
+              <p className="send-helper">Previewing does not send anything to Telegram.</p>
             </form>
           </Card>
-          <Card className="send-panel send-preview block gap-0 p-0">
-            <div className="send-panel-heading">
-              <BookOpen size={18} />
-              <div>
-                <h2>Question preview</h2>
-                <p>
-                  {draft
-                    ? `Question #${draft.id} · ${draft.complexity === "random" ? "Any difficulty" : draft.complexity}`
-                    : "Your loaded question will appear here."}
-                </p>
+          {isMessage ? (
+            <Card className="send-panel send-preview block gap-0 p-0">
+              <div className="send-panel-heading">
+                <MessageSquare size={18} />
+                <div>
+                  <h2>Message preview</h2>
+                  <p>Delivered as a standalone message.</p>
+                </div>
               </div>
-              {draft && (
-                <a
-                  href={draft.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Open question source"
-                >
-                  <ExternalLink size={16} />
-                </a>
-              )}
-            </div>
-            {draft ? (
               <div className="send-preview-content">
-                <TelegramMarkdown text={draft.question} />
-                {draft.attachments > 0 && (
-                  <p className="send-helper">
-                    Includes {draft.attachments} image attachment
-                    {draft.attachments === 1 ? "" : "s"}. Images are included in the Telegram
-                    message.
+                {messageDraft ? (
+                  <TelegramMarkdown text={messageDraft.text} />
+                ) : (
+                  <p className="send-helper">Write your message and select Preview message.</p>
+                )}
+                {messageDraft && messageDraft.text !== messageText && (
+                  <p className="send-helper" role="status">
+                    Your text has changed. Preview it again before sending.
                   </p>
                 )}
-                <details className="send-answer">
-                  <summary>
-                    Show answer
-                    <ChevronDown size={14} />
-                  </summary>
-                  <TelegramMarkdown text={draft.answer || "Answer text is unavailable."} />
-                </details>
                 <p className="send-helper">
-                  The question includes an Answer button. The Hint button follows each chat’s
-                  settings.
+                  Preview is approximate. Telegram reports invalid Markdown in delivery results.
                 </p>
               </div>
-            ) : (
-              <div className="empty">
-                <BookOpen size={28} />
-                <h3>No question loaded</h3>
-                <p>Load a question to review it before sending.</p>
+            </Card>
+          ) : (
+            <Card className="send-panel send-preview block gap-0 p-0">
+              <div className="send-panel-heading">
+                <BookOpen size={18} />
+                <div>
+                  <h2>Question preview</h2>
+                  <p>
+                    {draft
+                      ? `Question #${draft.id} · ${draft.complexity === "random" ? "Any difficulty" : draft.complexity}`
+                      : "Your loaded question will appear here."}
+                  </p>
+                </div>
+                {draft && (
+                  <a
+                    href={draft.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open question source"
+                  >
+                    <ExternalLink size={16} />
+                  </a>
+                )}
               </div>
-            )}
-          </Card>
+              {draft ? (
+                <div className="send-preview-content">
+                  <TelegramMarkdown text={draft.question} />
+                  {draft.attachments > 0 && (
+                    <p className="send-helper">
+                      Includes {draft.attachments} image attachment
+                      {draft.attachments === 1 ? "" : "s"}. Images are included in the Telegram
+                      message.
+                    </p>
+                  )}
+                  <details className="send-answer">
+                    <summary>
+                      Show answer
+                      <ChevronDown size={14} />
+                    </summary>
+                    <TelegramMarkdown text={draft.answer || "Answer text is unavailable."} />
+                  </details>
+                  <p className="send-helper">
+                    The question includes an Answer button. The Hint button follows each chat’s
+                    settings.
+                  </p>
+                </div>
+              ) : (
+                <div className="empty">
+                  <BookOpen size={28} />
+                  <h3>No question loaded</h3>
+                  <p>Load a question to review it before sending.</p>
+                </div>
+              )}
+            </Card>
+          )}
         </section>
         <section aria-label="Recipient selection" className="send-recipients">
           <Card className="send-panel block gap-0 p-0">
@@ -426,19 +531,21 @@ export function SendQuestionPage() {
             )}
             <div className="send-submit">
               <p>
-                {draft
-                  ? `Question #${draft.id} will be sent to ${unsent.length} selected chat${unsent.length === 1 ? "" : "s"}.`
-                  : "Load a question and select its recipients to continue."}
+                {ready
+                  ? `${isMessage ? "Your message" : `Question #${draft!.id}`} will be sent to ${unsent.length} selected chat${unsent.length === 1 ? "" : "s"}.`
+                  : isMessage
+                    ? "Preview your message and select its recipients to continue."
+                    : "Load a question and select its recipients to continue."}
               </p>
               <Button
                 className="w-full"
-                disabled={!draft || !unsent.length || loading || sending}
+                disabled={!ready || !unsent.length || loading || sending}
                 onClick={send}
               >
                 {sending ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
                 {sending
-                  ? "Sending question…"
-                  : `Send question${unsent.length ? ` to ${unsent.length} chat${unsent.length === 1 ? "" : "s"}` : ""}`}
+                  ? `Sending ${isMessage ? "message" : "question"}…`
+                  : `Send ${isMessage ? "message" : "question"}${unsent.length ? ` to ${unsent.length} chat${unsent.length === 1 ? "" : "s"}` : ""}`}
               </Button>
               {sendError && (
                 <p className="field-error" role="alert">
@@ -451,7 +558,8 @@ export function SendQuestionPage() {
             <Card className="send-results block gap-0 p-4">
               <h2>Delivery results</h2>
               <p className="send-helper">
-                Question #{draft?.id}. Load a new preview to start another send.
+                {isMessage ? "Message delivery." : `Question #${draft?.id}.`} Create a new preview
+                to start another send.
               </p>
               <ul aria-live="polite">
                 {[...deliveries.values()].map((result) => (

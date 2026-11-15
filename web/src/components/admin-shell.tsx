@@ -97,7 +97,7 @@ function SidebarNavigation(props: ShellProps) {
               </span>
               <div className="workspace-title">
                 <strong>Question Bot</strong>
-                <span>Administration</span>
+                <span>v{import.meta.env.APP_VERSION}</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
