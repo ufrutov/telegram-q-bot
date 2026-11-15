@@ -14,6 +14,7 @@ import {
   type AnswerPayload,
   type HintPayload,
 } from "@/services/questionSendStore.js";
+import { getChatInteractionSettings } from "@/services/chatInteractionSettings.js";
 import { recordLoadFailure } from "@/services/loadFailureStore.js";
 import type { Complexity, Question } from "@/types/question.js";
 import type { ThreadOpts } from "@/types/telegram.js";
@@ -82,28 +83,42 @@ export async function sendQuestionMessage(
     throw loadError;
   }
 
-  // Format question and answer for Telegram (MarkdownV2)
-  const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
-
-  if (questionId) {
-    console.log(
-      `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] Load question by id: ${questionId} (${questionData.link})`,
-    );
-  } else {
-    console.log(
-      `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] ${complexity} question: ${questionData.link}`,
-    );
-  }
-
   try {
     await bot.deleteMessage(chatId, loadingMsg.message_id);
   } catch {
-    /* ignore */
+    // Loading messages are temporary; delivery can proceed if cleanup fails.
   }
+  return sendLoadedQuestionMessage(bot, questionData, chatId, complexity, threadId, title);
+}
+
+/** Deliver a previously loaded question, preserving the normal bot UI and history.
+ * Dashboard batches reuse one Question object so every recipient gets the same ID.
+ */
+export async function sendLoadedQuestionMessage(
+  bot: TelegramBot,
+  questionData: Question,
+  chatId: string | number,
+  complexity: Complexity = "random",
+  threadId?: number,
+  title?: string,
+): Promise<SendQuestionResult> {
+  const threadOpts: ThreadOpts = threadId ? { message_thread_id: threadId } : {};
+  const questionLoader = QuestionLoader(DEFAULT_TARGET, complexity);
+  const { question, answer } = questionLoader.formatForTelegram(questionData, true, complexity);
+  console.log(
+    `[${chatId}${threadId ? `_${threadId}` : ""}][sendQuestionMessage] ${complexity} question: ${questionData.link}`,
+  );
 
   // Generate Redis keys for answer and hint storage
   const answerKey = `answer:${chatId}:${questionData.id}`;
   const hintKey = `hint:${chatId}:${questionData.id}`;
+  const settings = await getChatInteractionSettings(chatId, threadId);
+  const buttons: TelegramBot.InlineKeyboardButton[] = [
+    { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
+  ];
+  if (settings.hint_enabled) {
+    buttons.push({ text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) });
+  }
 
   // If question has preview images, send as media group. The loader pre-downloads
   // each image with a browser User-Agent (gotquestions.online returns 403 to
@@ -128,12 +143,7 @@ export async function sendQuestionMessage(
         ...threadOpts,
         reply_to_message_id: questionMessage.message_id,
         reply_markup: {
-          inline_keyboard: [
-            [
-              { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
-              { text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) },
-            ],
-          ],
+          inline_keyboard: [buttons],
         },
       });
 
@@ -170,12 +180,7 @@ export async function sendQuestionMessage(
     parse_mode: "MarkdownV2",
     disable_web_page_preview: true,
     reply_markup: {
-      inline_keyboard: [
-        [
-          { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
-          { text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) },
-        ],
-      ],
+      inline_keyboard: [buttons],
     },
   });
 

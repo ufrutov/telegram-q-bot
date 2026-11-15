@@ -370,3 +370,27 @@ sees the same Telegram reply they would without the integration.
 ## License
 
 ISC
+
+## Web dashboard
+
+The `/` dashboard lists registered chats/topics, schedules and question-send history.
+Supabase email/password authentication is required. Any authenticated user in the
+configured project can manage the daily-question, command and answer-button flags
+or delete a chat row and its history. No new tables or RLS policies are needed.
+
+Run `npm run dev` and open http://localhost:5173 after configuring `.env.local`.
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to the project's public
+credentials, and keep `SUPABASE_SERVICE_ROLE_KEY` server-side. Create dashboard
+users through Supabase Auth; every authenticated user has management access.
+
+The Send question page previews a random question or a question by ID, then sends
+it to up to 10 selected chats/topics. Sending requires `TELEGRAM_BOT_TOKEN` and
+uses the existing question loader and Telegram delivery flow. Local sends use
+real configured credentials. Restart the local server after changing `.env.local`.
+
+Run `npm run build:web` followed by `npm run preview:dashboard` to check built
+frontend assets locally. Deployment builds the frontend before packaging Vercel
+output. Set the GitHub Actions variables `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` for these builds (`SUPABASE_URL` and `SUPABASE_ANON_KEY`
+are also accepted as fallbacks), alongside the existing server environment
+variables in Vercel.

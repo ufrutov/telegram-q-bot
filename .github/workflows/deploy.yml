@@ -75,6 +75,12 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: Build dashboard
+        run: npm run build:web
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY || vars.SUPABASE_ANON_KEY }}
+
       - name: Build Vercel output
         run: npm run build:vercel
 

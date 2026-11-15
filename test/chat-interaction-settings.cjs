@@ -7,9 +7,15 @@ let rows = [];
 let failRead = false;
 let previews = [];
 let requests = [];
+let allowWrites = false;
 global.fetch = async (input, options) => {
   const url = new URL(typeof input === "string" ? input : (input.url ?? String(input)));
   requests.push(url);
+  if (allowWrites && options?.method === "POST") {
+    return new Response(JSON.stringify({ id: "chat-row", ...JSON.parse(options.body) }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
   assert.equal(options?.method ?? "GET", "GET", "blocked interactions must not write");
   if (failRead) return new Response(JSON.stringify({ message: "test failure" }), { status: 400 });
   let data;
@@ -51,6 +57,7 @@ function fakeBot(mediaFailure = false) {
         calls.push({ method, args });
         if (method === "getMe") return { username: "TestBot" };
         if (method === "sendMediaGroup" && mediaFailure) throw new Error("test media failure");
+        if (method === "sendMediaGroup") return [{ message_id: 98 }];
         return { message_id: 99 };
       },
     ]),
@@ -64,13 +71,14 @@ const callback = (data) => ({
 });
 
 async function main() {
-  const { getChatInteractionSettings } =
+  const { getChatInteractionSettings, isCallbackEnabled } =
     await import("../dist/src/services/chatInteractionSettings.js");
   const { default: messageHandler } = await import("../dist/api/handlers/messageHandler.js");
   const { default: callbackHandler } = await import("../dist/api/handlers/callbackHandler.js");
   assert.deepEqual(await getChatInteractionSettings(-123), {
     commands_enabled: true,
     answer_buttons_enabled: true,
+    hint_enabled: true,
   });
   rows = [
     { thread_id: null, commands_enabled: false, answer_buttons_enabled: true },
@@ -80,18 +88,79 @@ async function main() {
   assert.deepEqual(await getChatInteractionSettings(-123, 7), {
     commands_enabled: false,
     answer_buttons_enabled: false,
+    hint_enabled: true,
   });
   rows[0].commands_enabled = true;
   assert.deepEqual(
     await getChatInteractionSettings(-123, 7),
-    { commands_enabled: true, answer_buttons_enabled: false },
+    { commands_enabled: true, answer_buttons_enabled: false, hint_enabled: true },
     "dashboard edits must bypass warm cache",
   );
   assert.deepEqual(
     await getChatInteractionSettings(-123, 9),
-    { commands_enabled: true, answer_buttons_enabled: true },
+    { commands_enabled: true, answer_buttons_enabled: true, hint_enabled: true },
     "unrelated topics must not restrict this topic",
   );
+
+  const { sendLoadedQuestionMessage } = await import("../dist/src/services/questionSender.js");
+  const question = {
+    id: "123",
+    question: "Question",
+    answer: "Answer",
+    link: "https://gotquestions.online/question/123",
+  };
+  allowWrites = true;
+  for (const groupHint of [false, true]) {
+    for (const topicHint of [false, true]) {
+      rows = [
+        {
+          thread_id: null,
+          hint_enabled: groupHint,
+          commands_enabled: true,
+          answer_buttons_enabled: true,
+        },
+        {
+          thread_id: 7,
+          hint_enabled: topicHint,
+          commands_enabled: true,
+          answer_buttons_enabled: true,
+        },
+        { thread_id: 8, hint_enabled: false, commands_enabled: true, answer_buttons_enabled: true },
+      ];
+      const settings = await getChatInteractionSettings(-123, 7);
+      assert.equal(settings.hint_enabled, groupHint && topicHint);
+      assert.equal(
+        isCallbackEnabled({ hintKey: "hint:-123:123" }, settings),
+        groupHint && topicHint,
+      );
+      assert.equal(isCallbackEnabled({ answerKey: "answer:-123:123" }, settings), true);
+      for (const questionPreview of [[], ["https://example.com/photo.jpg"]]) {
+        const { bot, calls } = fakeBot();
+        await sendLoadedQuestionMessage(bot, { ...question, questionPreview }, -123, "random", 7);
+        const message = calls.find((c) => c.method === "sendMessage");
+        const buttons = message.args[2].reply_markup.inline_keyboard[0];
+        assert.equal(buttons.length, groupHint && topicHint ? 2 : 1);
+        assert.ok(JSON.parse(buttons[0].callback_data).answerKey);
+        assert.equal(message.args[2].message_thread_id, 7);
+        assert.equal(
+          calls.some((c) => c.method === "sendMediaGroup"),
+          questionPreview.length > 0,
+        );
+        if (!settings.hint_enabled) {
+          const stale = fakeBot();
+          await callbackHandler(stale.bot, null, {
+            ...callback({ hintKey: "hint:-123:123" }),
+            message: { chat: { id: -123 }, message_id: 42, message_thread_id: 7 },
+          });
+          assert.deepEqual(
+            stale.calls.map((c) => c.method),
+            ["answerCallbackQuery"],
+          );
+        }
+      }
+    }
+  }
+  allowWrites = false;
 
   for (const commands of [false, true])
     for (const buttons of [false, true]) {
@@ -178,6 +247,7 @@ async function main() {
   assert.deepEqual(await getChatInteractionSettings(-123), {
     commands_enabled: false,
     answer_buttons_enabled: false,
+    hint_enabled: false,
   });
   ({ bot, calls } = fakeBot());
   await messageHandler(bot, null, { chat: { id: -123 }, text: "/menu" });
