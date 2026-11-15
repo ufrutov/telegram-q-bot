@@ -112,6 +112,7 @@ async function main() {
     main: pkg.main,
     dependencies: pkg.dependencies,
     devDependencies: pkg.devDependencies,
+    overrides: pkg.overrides,
     engines: pkg.engines,
   };
 
