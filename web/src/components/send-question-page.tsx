@@ -273,7 +273,8 @@ export function SendQuestionPage() {
                   <TelegramMarkdown text={draft.answer || "Answer text is unavailable."} />
                 </details>
                 <p className="send-helper">
-                  The question is sent with the bot’s usual Answer and Hint buttons.
+                  The question includes an Answer button. The Hint button follows each chat’s
+                  settings.
                 </p>
               </div>
             ) : (

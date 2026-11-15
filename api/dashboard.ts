@@ -39,7 +39,7 @@ const mutationSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("toggle"),
-      field: z.enum(["cron_enabled", "commands_enabled", "answer_buttons_enabled"]),
+      field: z.enum(["cron_enabled", "commands_enabled", "answer_buttons_enabled", "hint_enabled"]),
       enabled: z.boolean(),
     })
     .strict(),
@@ -75,7 +75,7 @@ const sendQuestionSchema = z.discriminatedUnion("action", [
 ]);
 const PAGE_SIZE = 25;
 const CHAT_COLUMNS =
-  "id,chat_id,thread_id,title,timezone,is_active,cron_enabled,cron_time,cron_last_sent_at,commands_enabled,answer_buttons_enabled,created_at,updated_at";
+  "id,chat_id,thread_id,title,timezone,is_active,cron_enabled,cron_time,cron_last_sent_at,commands_enabled,answer_buttons_enabled,hint_enabled,created_at,updated_at";
 const QUESTION_COLUMNS =
   "id,question_id,telegram_message_id,complexity,hint_asked,hint_failed,hint_at,question_answered,created_at";
 
@@ -391,7 +391,7 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
           ? Promise.resolve({ data: chat, error: null })
           : supabase
               .from(TABLES.chats)
-              .select("commands_enabled,answer_buttons_enabled")
+              .select("commands_enabled,answer_buttons_enabled,hint_enabled")
               .eq("chat_id", chat.chat_id)
               .is("thread_id", null)
               .maybeSingle();
@@ -405,6 +405,7 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
       res.status(200).json({
         chat,
         effectiveSettings: {
+          hint_enabled: chat.hint_enabled && group.data?.hint_enabled !== false,
           commands_enabled: chat.commands_enabled && group.data?.commands_enabled !== false,
           answer_buttons_enabled:
             chat.answer_buttons_enabled && group.data?.answer_buttons_enabled !== false,

@@ -405,6 +405,7 @@ function ChatActions({
                         `Send a daily question at ${chat.cron_time.slice(0, 5)} (${chat.timezone}).`,
                       ],
                       ["commands_enabled", "Commands", "Respond to commands and menu actions."],
+                      ["hint_enabled", "Hints", "Show the Hint button on question messages."],
                       [
                         "answer_buttons_enabled",
                         "Answer buttons",
@@ -605,7 +606,12 @@ function Overview({ navigate }: { navigate: (values: Record<string, string | nul
                         <BookOpen size={17} />
                       </span>
                       <span className="activity-copy">
-                        <strong>Question #{question.question_id || "unknown"}</strong>
+                        <strong>
+                          Question #{question.question_id || "unknown"}
+                          <time className="activity-inline-date" dateTime={question.created_at}>
+                            {date(question.created_at, question.chatTimezone)}
+                          </time>
+                        </strong>
                         <span>{question.chatTitle}</span>
                       </span>
                       <span className="activity-time">
@@ -1143,6 +1149,11 @@ function ChatView({ chatId, back }: { chatId: string; back: () => void }) {
                     label="Commands"
                     value={chat.commands_enabled}
                     effective={query.data!.effectiveSettings.commands_enabled}
+                  />
+                  <Setting
+                    label="Hints"
+                    value={chat.hint_enabled}
+                    effective={query.data!.effectiveSettings.hint_enabled}
                   />
                   <Setting
                     label="Answer buttons"

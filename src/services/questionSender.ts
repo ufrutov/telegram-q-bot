@@ -14,6 +14,7 @@ import {
   type AnswerPayload,
   type HintPayload,
 } from "@/services/questionSendStore.js";
+import { getChatInteractionSettings } from "@/services/chatInteractionSettings.js";
 import { recordLoadFailure } from "@/services/loadFailureStore.js";
 import type { Complexity, Question } from "@/types/question.js";
 import type { ThreadOpts } from "@/types/telegram.js";
@@ -111,6 +112,13 @@ export async function sendLoadedQuestionMessage(
   // Generate Redis keys for answer and hint storage
   const answerKey = `answer:${chatId}:${questionData.id}`;
   const hintKey = `hint:${chatId}:${questionData.id}`;
+  const settings = await getChatInteractionSettings(chatId, threadId);
+  const buttons: TelegramBot.InlineKeyboardButton[] = [
+    { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
+  ];
+  if (settings.hint_enabled) {
+    buttons.push({ text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) });
+  }
 
   // If question has preview images, send as media group. The loader pre-downloads
   // each image with a browser User-Agent (gotquestions.online returns 403 to
@@ -135,12 +143,7 @@ export async function sendLoadedQuestionMessage(
         ...threadOpts,
         reply_to_message_id: questionMessage.message_id,
         reply_markup: {
-          inline_keyboard: [
-            [
-              { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
-              { text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) },
-            ],
-          ],
+          inline_keyboard: [buttons],
         },
       });
 
@@ -177,12 +180,7 @@ export async function sendLoadedQuestionMessage(
     parse_mode: "MarkdownV2",
     disable_web_page_preview: true,
     reply_markup: {
-      inline_keyboard: [
-        [
-          { text: MESSAGES.BUTTON_ANSWER, callback_data: JSON.stringify({ answerKey }) },
-          { text: MESSAGES.BUTTON_HINT, callback_data: JSON.stringify({ hintKey }) },
-        ],
-      ],
+      inline_keyboard: [buttons],
     },
   });
 

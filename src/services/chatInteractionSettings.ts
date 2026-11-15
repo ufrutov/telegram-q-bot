@@ -4,6 +4,7 @@ import type { CallbackAction } from "@/types/telegram.js";
 export interface ChatInteractionSettings {
   commands_enabled: boolean;
   answer_buttons_enabled: boolean;
+  hint_enabled: boolean;
 }
 
 /** Fresh read: dashboard edits must take effect even on warm Vercel instances.
@@ -14,7 +15,7 @@ export async function getChatInteractionSettings(
   chatId: number | string,
   threadId: number | undefined,
 ): Promise<ChatInteractionSettings> {
-  const disabled = { commands_enabled: false, answer_buttons_enabled: false };
+  const disabled = { commands_enabled: false, answer_buttons_enabled: false, hint_enabled: false };
   const supabase = getSupabaseClient();
   if (!supabase) {
     console.warn("[chatInteractionSettings] DB is not configured");
@@ -24,7 +25,7 @@ export async function getChatInteractionSettings(
   try {
     let query = supabase
       .from(TABLES.chats)
-      .select("thread_id, commands_enabled, answer_buttons_enabled")
+      .select("thread_id, commands_enabled, answer_buttons_enabled, hint_enabled")
       .eq("chat_id", Number(chatId));
     query =
       threadId == null
@@ -33,6 +34,7 @@ export async function getChatInteractionSettings(
     const { data, error } = await query;
     if (error) throw error;
     return {
+      hint_enabled: (data ?? []).every((row) => row.hint_enabled !== false),
       commands_enabled: (data ?? []).every((row) => row.commands_enabled === true),
       answer_buttons_enabled: (data ?? []).every((row) => row.answer_buttons_enabled === true),
     };
@@ -46,7 +48,8 @@ export function isCallbackEnabled(
   action: CallbackAction,
   settings: ChatInteractionSettings,
 ): boolean {
-  if (!("action" in action)) return true; // Answer and hint remain usable.
+  if ("hintKey" in action) return settings.hint_enabled;
+  if (!("action" in action)) return true; // Answer remains usable.
   if (action.action === "answered") return settings.answer_buttons_enabled;
   if (action.action === "pack") {
     return settings.commands_enabled && settings.answer_buttons_enabled;

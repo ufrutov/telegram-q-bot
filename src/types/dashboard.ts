@@ -11,6 +11,7 @@ export interface DashboardChat {
   cron_last_sent_at: string | null;
   commands_enabled: boolean;
   answer_buttons_enabled: boolean;
+  hint_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -30,7 +31,11 @@ export interface ChatPage {
 }
 export interface ChatDetail {
   chat: DashboardChat;
-  effectiveSettings: { commands_enabled: boolean; answer_buttons_enabled: boolean };
+  effectiveSettings: {
+    commands_enabled: boolean;
+    answer_buttons_enabled: boolean;
+    hint_enabled: boolean;
+  };
   counts: ChatCounts;
 }
 export interface DashboardQuestion {

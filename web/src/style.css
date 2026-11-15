@@ -426,6 +426,9 @@
     font-weight: 500;
     font-size: 13px;
   }
+  .activity-inline-date {
+    display: none;
+  }
   .activity-copy > span {
     color: var(--muted-foreground);
     font-size: 12px;
@@ -1147,6 +1150,13 @@
     }
     .activity-copy strong {
       font-size: 12px;
+    }
+    .activity-inline-date {
+      display: inline;
+      margin-left: 6px;
+      color: var(--muted-foreground);
+      font-size: 10px;
+      font-weight: 400;
     }
     .activity-time {
       font-size: 10px;
