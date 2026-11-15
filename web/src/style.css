@@ -1342,6 +1342,32 @@
     display: grid;
     gap: 20px;
   }
+  .announcement-input {
+    width: 100%;
+    min-height: 200px;
+    resize: vertical;
+    border: 1px solid var(--input);
+    border-radius: 6px;
+    background: var(--background);
+    padding: 12px;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .announcement-input:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .announcement-input:disabled {
+    opacity: 0.5;
+  }
+  .announcement-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
   .send-mode {
     display: flex;
     flex-wrap: wrap;

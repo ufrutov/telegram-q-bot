@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig(({ command, mode }) => {
@@ -24,6 +25,11 @@ export default defineConfig(({ command, mode }) => {
   return {
     root: fileURLToPath(new URL(".", import.meta.url)),
     envDir: projectRoot,
+    define: {
+      "import.meta.env.APP_VERSION": JSON.stringify(
+        JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version,
+      ),
+    },
     plugins: [react(), tailwindcss()],
     resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
     build: { outDir: "../dist/web", emptyOutDir: true, sourcemap: false },

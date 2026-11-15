@@ -9,6 +9,7 @@ import {
   dashboardRedis,
   loadDashboardQuestion,
   deliverDashboardQuestion,
+  deliverDashboardMessage,
   dashboardDeliveryDependencies,
 } from "@/services/dashboardQuestionDelivery.js";
 
@@ -51,7 +52,24 @@ const questionIdSchema = z
   .trim()
   .regex(/^\d{1,15}$/)
   .transform((value) => value.replace(/^0+(?=\d)/, ""));
+const recipientIdsSchema = z
+  .array(z.uuid())
+  .min(1)
+  .max(10)
+  .refine((ids) => new Set(ids).size === ids.length, "Recipients must be unique");
 const sendQuestionSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("send-message"),
+      text: z
+        .string()
+        .min(1)
+        .max(4096)
+        .refine((value) => value.trim().length > 0, "Message is empty"),
+      draftId: z.uuid(),
+      chatIds: recipientIdsSchema,
+    })
+    .strict(),
   z
     .object({
       action: z.literal("load"),
@@ -65,11 +83,7 @@ const sendQuestionSchema = z.discriminatedUnion("action", [
       questionId: questionIdSchema,
       complexity: complexitySchema,
       draftId: z.uuid(),
-      chatIds: z
-        .array(z.uuid())
-        .min(1)
-        .max(10)
-        .refine((ids) => new Set(ids).size === ids.length, "Recipients must be unique"),
+      chatIds: recipientIdsSchema,
     })
     .strict(),
 ]);
@@ -121,9 +135,9 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
       }
       const parsedBody = sendQuestionSchema.safeParse(req.body);
       if (!parsedBody.success) {
-        res
-          .status(400)
-          .json({ error: "Provide a valid question ID and select up to 10 unique chats" });
+        res.status(400).json({
+          error: "Provide valid message content or a question ID and select up to 10 unique chats",
+        });
         return;
       }
       const body = parsedBody.data;
@@ -175,6 +189,18 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
       const recipientMap = new Map(recipients.map((chat) => [chat.id, chat]));
       const chats = body.chatIds.map((id) => recipientMap.get(id)!);
       const redis = await dashboardRedis();
+      if (body.action === "send-message") {
+        const results = await deliverDashboardMessage(
+          identity.user.id,
+          body.draftId,
+          body.text,
+          chats,
+          redis,
+          bot,
+        );
+        res.status(200).json({ results });
+        return;
+      }
       const results = await deliverDashboardQuestion(
         identity.user.id,
         body.draftId,

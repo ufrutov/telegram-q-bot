@@ -29,7 +29,7 @@ const server = createServer(async (req, res) => {
         let raw = "";
         for await (const chunk of req) {
           raw += chunk.toString();
-          if (Buffer.byteLength(raw) > 4096) {
+          if (Buffer.byteLength(raw) > 32768) {
             res.writeHead(413);
             res.end("Request too large");
             return;
