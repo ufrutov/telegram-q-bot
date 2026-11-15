@@ -37,7 +37,7 @@ export function parseTelegram(text: string, depth = 0): TelegramToken[] {
       plain = "";
     }
   };
-  for (let i = 0; i < text.length; ) {
+  for (let i = 0; i < text.length;) {
     if (text[i] === "\\" && text[i + 1] && escapedCharacter.test(text[i + 1])) {
       plain += text[i + 1];
       i += 2;

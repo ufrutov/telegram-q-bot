@@ -405,3 +405,23 @@ output. Set the GitHub Actions variables `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_ANON_KEY` for these builds (`SUPABASE_URL` and `SUPABASE_ANON_KEY`
 are also accepted as fallbacks), alongside the existing server environment
 variables in Vercel.
+
+## Dependency security
+
+`package.json` pins minimum patched tooling versions and uses npm overrides for
+transitive dependencies whose parents still require vulnerable releases:
+
+- The Telegram client keeps its existing API. Its request transport uses
+  `@cypress/request` 4, including the unused legacy `request` peer installed by
+  `request-promise-core`. Patched `qs` and `form-data` are enforced explicitly.
+- Vercel tooling uses the patched file tracer, Undici, route matcher and Ajv.
+- The formatter uses the patched Tinypool worker implementation.
+
+Use Node.js 22.12 or newer for the updated tooling. The deployment workflows
+already use Node.js 22.
+
+Review these overrides when updating the parent packages; remove them once the
+parents require patched versions themselves. Run `npm audit`, `npm run validate`,
+`npm run test:interactions` and `npm run test:transport` after dependency changes.
+The transport test runs a local fake Telegram API and verifies text, callbacks,
+media uploads and error responses without sending real Telegram messages.

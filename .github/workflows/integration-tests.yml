@@ -33,6 +33,9 @@ jobs:
       - name: Test chat interaction settings offline
         run: npm run test:interactions
 
+      - name: Test Telegram HTTP transport locally
+        run: npm run test:transport
+
       - name: Check test database configuration
         run: |
           test -n "$SUPABASE_INTEGRATION_URL" || { echo "::error::Set the SUPABASE_URL Actions variable."; exit 1; }
