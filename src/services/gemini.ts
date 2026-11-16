@@ -51,6 +51,7 @@ OUTPUT FORMAT:
 
 interface GeminiTextPart {
   text: string;
+  thought?: boolean;
 }
 
 interface GeminiInlineDataPart {
@@ -139,6 +140,7 @@ export async function generateHint(
   correctAnswer: string,
   description: string | undefined,
   questionPreview: string[] = [],
+  model: string = GEMINI_MODEL,
 ): Promise<string> {
   if (!GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is not configured");
@@ -166,13 +168,14 @@ export async function generateHint(
 
   const contents: GeminiContent[] = [{ role: "user", parts }];
 
-  const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent`;
+  const url = `${GEMINI_API_BASE}/${encodeURIComponent(model)}:generateContent`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-goog-api-key": GEMINI_API_KEY,
     },
+    signal: AbortSignal.timeout(25000),
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
       contents,
@@ -194,7 +197,11 @@ export async function generateHint(
     throw new Error(`Gemini blocked the request: ${data.promptFeedback.blockReason}`);
   }
 
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const text = data.candidates?.[0]?.content?.parts
+    ?.filter((part) => !part.thought)
+    .map((part) => part.text)
+    .join("")
+    .trim();
   if (!text) {
     throw new Error("Gemini returned no message content");
   }

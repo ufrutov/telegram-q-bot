@@ -399,6 +399,36 @@ result.
 
 The sidebar displays the package version bundled at build time.
 
+### Hint model settings
+
+Apply `supabase/migrations/0006_hint_model_settings.sql` manually before deploying
+this feature. It adds nullable `hint_provider` and `hint_model` columns to
+`tq-bot-chats`; it creates no tables. Both columns must be set or cleared together.
+
+Open `/?view=bot-settings` to select a global hint provider/model. Global choices
+are stored in Redis under `tq-bot:hint-settings`, without an expiry. Configure
+`REDIS_URL` to enable global saves. Redis must retain this key; clearing it
+restores environment defaults. API keys stay in the server environment:
+`GEMINI_API_KEY` and `OPENROUTER_API_KEY`.
+
+Each chat's settings panel also offers a model override. Resolution is topic →
+main chat → Bot settings → environment (`HINT_PROVIDER`, `GEMINI_MODEL`,
+`OPENROUTER_HINT_MODEL`). Apply to all chats in Bot settings temporarily bypasses
+chat/topic overrides without deleting them. Turning it off restores normal
+inheritance. Model changes affect new hint requests, and the existing Hints
+enabled flag still applies.
+
+Model selectors use provider catalogs, filtered for suitable text/image hint
+models. Test a hint previews the selected configuration using a sample question
+and answer; it consumes provider quota but does not save or send Telegram messages.
+Prompts and generation budgets remain provider-specific in code. Run
+`npm run test:hint-models` for the offline configuration/routing regression suite.
+
+Daily-question timing remains unchanged: each chat stores its time and timezone,
+but the Vercel ticker currently runs only at 09:00 and 10:00 UTC and compares local
+hours, ignoring minutes. Arbitrary times require more frequent scheduler calls
+and an adjustment to the ticker's due-time logic.
+
 Run `npm run build:web` followed by `npm run preview:dashboard` to check built
 frontend assets locally. Deployment builds the frontend before packaging Vercel
 output. Set the GitHub Actions variables `VITE_SUPABASE_URL` and

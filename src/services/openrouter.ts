@@ -108,7 +108,9 @@ export async function generateHint(
   correctAnswer: string,
   description: string | undefined,
   questionPreview: string[] = [],
+  model: string = OPENROUTER_HINT_MODEL,
 ): Promise<string> {
+  if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY is not configured");
   const questionText = question.slice(0, 220);
   const answerText = correctAnswer.slice(0, 60);
 
@@ -142,7 +144,7 @@ export async function generateHint(
   // request affordable. Try `none` first, then retry with low effort only
   // when the provider explicitly requires reasoning.
   const basePayload = {
-    model: OPENROUTER_HINT_MODEL,
+    model,
     messages,
     max_tokens: HINT_MAX_TOKENS,
     temperature: 0.7,
@@ -152,6 +154,7 @@ export async function generateHint(
   for (const reasoning of [{ effort: "none" }, { effort: "low" }]) {
     response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(20000),
       headers: {
         Authorization: `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",

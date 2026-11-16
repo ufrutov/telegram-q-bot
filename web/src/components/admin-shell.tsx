@@ -12,6 +12,7 @@ import {
   Moon,
   Search,
   Send,
+  Settings2,
   Sun,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -135,6 +136,16 @@ function SidebarNavigation(props: ShellProps) {
               >
                 <Send />
                 <span>Send question</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={props.view === "bot-settings"}
+                tooltip="Bot settings"
+                onClick={() => go({ view: "bot-settings" })}
+              >
+                <Settings2 />
+                <span>Bot settings</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

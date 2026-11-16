@@ -4,7 +4,7 @@
 
 import type TelegramBot from "node-telegram-bot-api";
 
-import { generateHint, formatErrorMessage } from "@/services/gemini.js";
+import { generateHint, formatErrorMessage } from "@/services/hintGenerator.js";
 import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import { resolveChatTitle } from "@/utils/telegramChat.js";
@@ -95,7 +95,15 @@ export default async function hintCallback(
     let hintError: string | undefined;
     try {
       const loadingMsg = await bot.sendMessage(chatId, MESSAGES.HINT_LOADING, threadOpts);
-      hint = await generateHint(question, answer, description, questionPreview);
+      hint = await generateHint(
+        question,
+        answer,
+        description,
+        questionPreview,
+        undefined,
+        chatId,
+        threadId,
+      );
       try {
         await bot.deleteMessage(chatId, loadingMsg.message_id);
       } catch {

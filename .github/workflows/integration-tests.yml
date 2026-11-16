@@ -36,6 +36,9 @@ jobs:
       - name: Test Telegram HTTP transport locally
         run: npm run test:transport
 
+      - name: Test hint model configuration offline
+        run: node test/hint-model-settings.cjs
+
       - name: Check test database configuration
         run: |
           test -n "$SUPABASE_INTEGRATION_URL" || { echo "::error::Set the SUPABASE_URL Actions variable."; exit 1; }
