@@ -1613,3 +1613,70 @@
     }
   }
 }
+
+@layer components {
+  .bot-settings-card {
+    max-width: 760px;
+  }
+  .hint-settings {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+  }
+  .hint-settings select {
+    width: 100%;
+    min-width: 0;
+    height: 36px;
+    min-height: 36px;
+    padding-block: 6px;
+    text-overflow: ellipsis;
+  }
+  .hint-effective {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--muted);
+  }
+  .hint-effective > span,
+  .hint-note,
+  .hint-status {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .hint-effective strong {
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .hint-all-toggle {
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .hint-test {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  .hint-test summary {
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .hint-test[open] > * + * {
+    margin-top: 16px;
+  }
+  .hint-test .announcement-input {
+    min-height: 100px;
+  }
+  .hint-test-result {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding: 12px;
+    background: var(--muted);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+}

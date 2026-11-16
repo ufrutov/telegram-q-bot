@@ -1,6 +1,14 @@
 /** Dashboard API. Every authenticated Supabase user has access. */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { z } from "zod";
+import {
+  getHintSettings,
+  hintConfigSchema,
+  listHintModels,
+  saveGlobalHintConfig,
+  validateHintConfig,
+} from "@/services/hintSettings.js";
+import { generateHint } from "@/services/hintGenerator.js";
 import { getSupabaseClient, TABLES } from "@/services/supabase.js";
 import type { DashboardChat } from "@/types/dashboard.js";
 import { getBotClient } from "@/bot/botClient.js";
@@ -18,8 +26,19 @@ type ChatCountRow = DashboardChat &
 
 const querySchema = z.object({
   resource: z
-    .enum(["overview", "chats", "chat", "questions", "question", "send-question"])
+    .enum([
+      "overview",
+      "chats",
+      "chat",
+      "questions",
+      "question",
+      "send-question",
+      "hint-settings",
+      "hint-models",
+      "hint-test",
+    ])
     .default("chats"),
+  provider: z.enum(["gemini", "openrouter"]).default("gemini"),
   chatId: z.uuid().optional(),
   sendId: z
     .string()
@@ -87,6 +106,16 @@ const sendQuestionSchema = z.discriminatedUnion("action", [
     })
     .strict(),
 ]);
+const hintSaveSchema = z
+  .object({ config: hintConfigSchema.nullable(), overrideAll: z.boolean().default(false) })
+  .strict();
+const hintTestSchema = z
+  .object({
+    config: hintConfigSchema.nullable(),
+    question: z.string().trim().min(1).max(2000),
+    answer: z.string().trim().min(1).max(1000),
+  })
+  .strict();
 const PAGE_SIZE = 25;
 const CHAT_COLUMNS =
   "id,chat_id,thread_id,title,timezone,is_active,cron_enabled,cron_time,cron_last_sent_at,commands_enabled,answer_buttons_enabled,hint_enabled,created_at,updated_at";
@@ -127,6 +156,113 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
       return;
     }
     const query = parsed.data;
+    if (query.resource === "hint-models") {
+      if (req.method !== "GET") {
+        res.status(405).json({ error: "Use GET for model lists" });
+        return;
+      }
+      try {
+        res.status(200).json({ models: await listHintModels(query.provider) });
+      } catch (error) {
+        res
+          .status(502)
+          .json({ error: error instanceof Error ? error.message : "Could not load models" });
+      }
+      return;
+    }
+    if (query.resource === "hint-settings" || query.resource === "hint-test") {
+      if (
+        query.resource === "hint-test"
+          ? req.method !== "POST"
+          : !["GET", "PATCH"].includes(req.method!)
+      ) {
+        res.status(405).json({ error: "Method not allowed for hint settings" });
+        return;
+      }
+      let scope: { chat_id: number; thread_id: number | null } | undefined;
+      if (query.chatId) {
+        const found = await supabase
+          .from(TABLES.chats)
+          .select("chat_id,thread_id")
+          .eq("id", query.chatId)
+          .maybeSingle();
+        if (found.error) throw found.error;
+        if (!found.data) {
+          res.status(404).json({ error: "Chat not found" });
+          return;
+        }
+        scope = found.data;
+      }
+      const settings = () => getHintSettings(scope?.chat_id, scope?.thread_id ?? undefined);
+      if (query.resource === "hint-test") {
+        const parsed = hintTestSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ error: "Provide a valid model, sample question and answer" });
+          return;
+        }
+        const body = parsed.data;
+        try {
+          const effective =
+            body.config ??
+            (await getHintSettings(scope?.chat_id, scope?.thread_id ?? undefined, true)).effective;
+          await validateHintConfig(effective);
+          const hint = await generateHint(body.question, body.answer, undefined, [], effective);
+          res.status(200).json({ hint, provider: effective.provider, model: effective.model });
+        } catch {
+          res.status(502).json({
+            error:
+              "Could not generate a hint. Check the provider credentials, model availability and usage limits.",
+          });
+        }
+        return;
+      }
+      if (req.method === "GET") {
+        res.status(200).json(await settings());
+        return;
+      }
+      const parsed = hintSaveSchema.safeParse(req.body);
+      if (!parsed.success || (scope && parsed.data.overrideAll)) {
+        res.status(400).json({ error: "Invalid hint settings" });
+        return;
+      }
+      const body = parsed.data;
+      if (body.config) {
+        try {
+          await validateHintConfig(body.config);
+        } catch (error) {
+          res.status(400).json({ error: error instanceof Error ? error.message : "Invalid model" });
+          return;
+        }
+      }
+      if (scope) {
+        const saved = await supabase
+          .from(TABLES.chats)
+          .update({
+            hint_provider: body.config?.provider ?? null,
+            hint_model: body.config?.model ?? null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", query.chatId!)
+          .select("id")
+          .maybeSingle();
+        if (saved.error) throw saved.error;
+        if (!saved.data) {
+          res.status(404).json({ error: "Chat not found" });
+          return;
+        }
+      } else {
+        try {
+          await saveGlobalHintConfig(body.config, body.overrideAll);
+        } catch {
+          res.status(503).json({
+            error: "Could not save global settings. Check REDIS_URL and Redis availability.",
+          });
+          return;
+        }
+      }
+      res.status(200).json(await settings());
+      return;
+    }
     if (query.resource === "send-question") {
       if (req.method !== "POST") {
         res.setHeader("Allow", "POST");

@@ -57,6 +57,8 @@ import {
   TableCell,
   TableCaption,
 } from "./components/ui/table";
+import { HintSettingsForm } from "./components/hint-settings-form";
+import { BotSettingsPage } from "./components/bot-settings-page";
 import { SendQuestionPage } from "./components/send-question-page";
 import { AdminShell, ThemeToggle } from "./components/admin-shell";
 import {
@@ -430,6 +432,8 @@ function ChatActions({
                     </div>
                   ))}
                 </div>
+                <h3 className="settings-section-title">Hint model</h3>
+                {open && <HintSettingsForm chatId={chat.id} />}
                 <p className="notice">
                   {chat.thread_id === null
                     ? "Interaction restrictions on this row apply to every topic in the group."
@@ -1247,15 +1251,17 @@ function Dashboard({ email }: { email: string }) {
   const [busy, setBusy] = useState(false);
   const chatId = location.params.get("chat");
   const view =
-    location.params.get("view") === "send-question"
-      ? "send-question"
-      : chatId ||
-          location.params.get("view") === "chats" ||
-          location.params.has("search") ||
-          location.params.has("cron") ||
-          location.params.has("active")
-        ? "chats"
-        : "overview";
+    location.params.get("view") === "bot-settings"
+      ? "bot-settings"
+      : location.params.get("view") === "send-question"
+        ? "send-question"
+        : chatId ||
+            location.params.get("view") === "chats" ||
+            location.params.has("search") ||
+            location.params.has("cron") ||
+            location.params.has("active")
+          ? "chats"
+          : "overview";
   async function signOut() {
     setBusy(true);
     setSignOutError("");
@@ -1268,17 +1274,20 @@ function Dashboard({ email }: { email: string }) {
       setBusy(false);
     }
   }
-  const title = chatId
-    ? "Chat details"
-    : view === "send-question"
-      ? "Send question"
-      : view === "overview"
-        ? "Overview"
-        : location.params.get("cron") === "true"
-          ? "Daily questions"
-          : location.params.get("active") === "false"
-            ? "Inactive chats"
-            : "Chats";
+  const title =
+    view === "bot-settings"
+      ? "Bot settings"
+      : chatId
+        ? "Chat details"
+        : view === "send-question"
+          ? "Send question"
+          : view === "overview"
+            ? "Overview"
+            : location.params.get("cron") === "true"
+              ? "Daily questions"
+              : location.params.get("active") === "false"
+                ? "Inactive chats"
+                : "Chats";
   return (
     <AdminShell
       email={email}
@@ -1291,7 +1300,9 @@ function Dashboard({ email }: { email: string }) {
       signOut={signOut}
     >
       {signOutError && <ErrorNotice error={new Error(signOutError)} />}
-      {view === "send-question" ? (
+      {view === "bot-settings" ? (
+        <BotSettingsPage />
+      ) : view === "send-question" ? (
         <SendQuestionPage />
       ) : chatId ? (
         <ChatView

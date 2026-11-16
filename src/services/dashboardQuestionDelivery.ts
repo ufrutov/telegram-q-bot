@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type TelegramBot from "node-telegram-bot-api";
 import type { RedisClientType } from "redis";
-import { getRedisClient } from "@/bot/botClient.js";
+export { getConnectedRedis as dashboardRedis } from "./redisConnection.js";
 import QuestionLoader from "@/lib/QuestionLoader/QuestionLoader.js";
 import { sendLoadedQuestionMessage } from "./questionSender.js";
 import type { Question, Complexity } from "@/types/question.js";
@@ -9,22 +9,6 @@ import type { DashboardChat, QuestionDelivery } from "@/types/dashboard.js";
 
 const TTL = 3600;
 const memory = new Map<string, { expires: number; result: QuestionDelivery }>();
-let connecting: Promise<unknown> | null = null;
-
-export async function dashboardRedis(): Promise<RedisClientType | null> {
-  const redis = getRedisClient();
-  if (!redis) return null;
-  if (connecting) await connecting;
-  else if (!redis.isOpen) {
-    connecting = redis.connect();
-    try {
-      await connecting;
-    } finally {
-      connecting = null;
-    }
-  }
-  return redis;
-}
 export async function loadDashboardQuestion(
   questionId: string | undefined,
   complexity: Complexity,
