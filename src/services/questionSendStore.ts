@@ -271,7 +271,7 @@ export async function recordHintResult(args: RecordHintResultArgs): Promise<void
   }
 }
 
-export type AnsweredResult = { ok: true } | { ok: false; error: string };
+export type AnsweredResult = { ok: true; chatRowId: string } | { ok: false; error: string };
 
 interface RecordQuestionAnsweredArgs {
   chatId: number | string;
@@ -320,7 +320,7 @@ export async function recordQuestionAnswered(
       console.warn("[supabase] recordQuestionAnswered failed:", error.message);
       return { ok: false, error: error.message };
     }
-    return { ok: true };
+    return { ok: true, chatRowId: chat.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn("[supabase] recordQuestionAnswered unexpected error:", message);
