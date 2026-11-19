@@ -5,6 +5,8 @@
 -- and policies before the tables they reference.
 
 -- Functions
+drop function if exists tq_bot_get_answer_streak(uuid);
+drop function if exists tq_bot_get_answer_counts(uuid[]);
 drop function if exists tq_bot_get_stats(uuid, timestamptz);
 drop function if exists tq_bot_add_cron_job(uuid, time, text, int);
 

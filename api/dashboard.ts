@@ -13,8 +13,7 @@ import {
   dashboardDeliveryDependencies,
 } from "@/services/dashboardQuestionDelivery.js";
 
-type ChatCountRow = DashboardChat &
-  Record<"loaded" | "answered" | "hints", Array<{ count: number }>>;
+type ChatCountRow = DashboardChat & Record<"loaded" | "hints", Array<{ count: number }>>;
 
 const querySchema = z.object({
   resource: z
@@ -273,7 +272,7 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
           .eq("is_active", true)
           .eq("cron_enabled", true),
         sends(),
-        sends().eq("question_answered", true),
+        supabase.rpc("tq_bot_get_answer_counts", { p_chat_ids: null }),
         supabase
           .from(TABLES.chats)
           .select(CHAT_COLUMNS)
@@ -305,7 +304,7 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
           chats: chats.count ?? 0,
           scheduled: scheduled.count ?? 0,
           questions: questions.count ?? 0,
-          answered: answered.count ?? 0,
+          answered: Number(answered.data?.[0]?.answered ?? 0),
         },
         scheduledChats: scheduledChats.data ?? [],
         recentQuestions: (recent.data ?? []).map((row) => {
@@ -327,12 +326,10 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
       let request = supabase
         .from(TABLES.chats)
         .select(
-          `${CHAT_COLUMNS},loaded:${TABLES.questionSends}(count),answered:${TABLES.questionSends}(count),hints:${TABLES.questionSends}(count)`,
+          `${CHAT_COLUMNS},loaded:${TABLES.questionSends}(count),hints:${TABLES.questionSends}(count)`,
           { count: "exact" },
         )
         .eq("loaded.is_integration_test", false)
-        .eq("answered.is_integration_test", false)
-        .eq("answered.question_answered", true)
         .eq("hints.is_integration_test", false)
         .eq("hints.hint_asked", true);
       if (query.active !== "all") request = request.eq("is_active", query.active === "true");
@@ -355,11 +352,24 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
         .range(query.page * PAGE_SIZE, (query.page + 1) * PAGE_SIZE - 1)
         .overrideTypes<ChatCountRow[], { merge: false }>();
       if (error) throw error;
-      const items = (data ?? []).map(({ loaded, answered, hints, ...chat }) => ({
+      const chats = data ?? [];
+      const answeredByChat = new Map<string, number>();
+      if (chats.length) {
+        const { data: answered, error: answeredError } = await supabase.rpc(
+          "tq_bot_get_answer_counts",
+          { p_chat_ids: chats.map((chat) => chat.id) },
+        );
+        if (answeredError) throw answeredError;
+        for (const row of answered ?? []) {
+          answeredByChat.set(row.chat_id, Number(row.answered));
+        }
+      }
+
+      const items = chats.map(({ loaded, hints, ...chat }) => ({
         ...chat,
         counts: {
           loaded: Number(loaded?.[0]?.count ?? 0),
-          answered: Number(answered?.[0]?.count ?? 0),
+          answered: answeredByChat.get(chat.id) ?? 0,
           hints: Number(hints?.[0]?.count ?? 0),
         },
       }));
@@ -423,7 +433,7 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
               .maybeSingle();
       const [loaded, answered, hints, group] = await Promise.all([
         countBase(),
-        countBase().eq("question_answered", true),
+        supabase.rpc("tq_bot_get_answer_counts", { p_chat_ids: [chat.id] }),
         countBase().eq("hint_asked", true),
         groupQuery,
       ]);
@@ -438,7 +448,7 @@ export default async function dashboard(req: VercelRequest, res: VercelResponse)
         },
         counts: {
           loaded: loaded.count ?? 0,
-          answered: answered.count ?? 0,
+          answered: Number(answered.data?.[0]?.answered ?? 0),
           hints: hints.count ?? 0,
         },
       });

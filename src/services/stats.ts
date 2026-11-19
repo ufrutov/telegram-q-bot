@@ -32,10 +32,31 @@ export interface StatsReport {
   chatTitle: string | null;
   sends: SendStat[];
   failures: number;
+  answerStreak: number;
 }
 
 function emptyStat(complexity: Complexity): SendStat {
   return { complexity, loaded: 0, hints_asked: 0, hints_failed: 0, answered: 0 };
+}
+
+export async function getAnswerStreak(chatRowId: string): Promise<number> {
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) return 0;
+
+    const { data, error } = await supabase.rpc("tq_bot_get_answer_streak", {
+      p_chat_id: chatRowId,
+    });
+    if (error) throw error;
+    return Number(data ?? 0);
+  } catch (error) {
+    console.warn("[stats] answer streak lookup failed:", error);
+    return 0;
+  }
+}
+
+export function formatAnswerStreak(streak: number): string | undefined {
+  if (streak > 5) return `🔥 Правильных ответов подряд: ${streak}`;
 }
 
 export async function getStats(
@@ -49,10 +70,13 @@ export async function getStats(
   if (!chat) return { ok: false, error: "Chat is not registered yet. Run a /question first." };
 
   try {
-    const { data, error } = await supabase.rpc("tq_bot_get_stats", {
-      p_chat_id: chat.id,
-      p_since: null,
-    });
+    const [{ data, error }, answerStreak] = await Promise.all([
+      supabase.rpc("tq_bot_get_stats", {
+        p_chat_id: chat.id,
+        p_since: null,
+      }),
+      getAnswerStreak(chat.id),
+    ]);
 
     if (error) return { ok: false, error: `DB error: ${error.message}` };
 
@@ -92,6 +116,7 @@ export async function getStats(
         chatTitle: chat.title,
         sends: COMPLEXITIES.map((c) => buckets.get(c) ?? emptyStat(c)),
         failures,
+        answerStreak,
       },
     };
   } catch (err) {
@@ -184,6 +209,9 @@ export function formatStats(report: StatsReport): string {
     }
     lines.push(totalLine);
   }
+
+  const streakLine = formatAnswerStreak(report.answerStreak);
+  if (streakLine) lines.push(streakLine);
 
   if (report.failures > 0) {
     lines.push("", `⚠️ Ошибок загрузки: ${report.failures}`);

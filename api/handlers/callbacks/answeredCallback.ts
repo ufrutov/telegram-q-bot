@@ -13,6 +13,7 @@
 import type TelegramBot from "node-telegram-bot-api";
 
 import { recordQuestionAnswered } from "@/services/questionSendStore.js";
+import { formatAnswerStreak, getAnswerStreak } from "@/services/stats.js";
 import { MESSAGES } from "@/bot/constants.js";
 import { escapeMarkdownV2 } from "@/utils/markdown.js";
 import { resolveChatTitle } from "@/utils/telegramChat.js";
@@ -96,7 +97,11 @@ export default async function answeredCallback(
   }
 
   try {
-    await bot.sendMessage(chatId, escapeMarkdownV2(MESSAGES.ANSWER_COUNTED), {
+    const streakLine = formatAnswerStreak(await getAnswerStreak(result.chatRowId));
+    const confirmation = streakLine
+      ? `${MESSAGES.ANSWER_COUNTED}\n${streakLine}`
+      : MESSAGES.ANSWER_COUNTED;
+    await bot.sendMessage(chatId, escapeMarkdownV2(confirmation), {
       ...threadOpts,
       parse_mode: "MarkdownV2",
     });
